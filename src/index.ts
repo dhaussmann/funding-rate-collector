@@ -206,18 +206,47 @@ export default {
       if (path === '/history') {
         const symbol = url.searchParams.get('symbol');
         const exchange = url.searchParams.get('exchange');
-        const hours = parseInt(url.searchParams.get('hours') || '24');
         const limit = parseInt(url.searchParams.get('limit') || '1000');
 
-        // Berechne Zeitstempel für X Stunden zurück
-        const cutoffTime = Date.now() - (hours * 60 * 60 * 1000);
+        // Datumsbereich-Parameter
+        let startTime: number;
+        let endTime: number;
+        let queryMode: 'range' | 'hours' = 'hours';
 
+        // Option 1: Unix Timestamps (Millisekunden)
+        const startTimeParam = url.searchParams.get('startTime');
+        const endTimeParam = url.searchParams.get('endTime');
+
+        // Option 2: ISO8601 Datumsstrings
+        const startDateParam = url.searchParams.get('startDate');
+        const endDateParam = url.searchParams.get('endDate');
+
+        // Option 3: Relative Stunden (Standard/Fallback)
+        const hours = parseInt(url.searchParams.get('hours') || '24');
+
+        if (startTimeParam && endTimeParam) {
+          // Verwende absolute Unix Timestamps
+          startTime = parseInt(startTimeParam);
+          endTime = parseInt(endTimeParam);
+          queryMode = 'range';
+        } else if (startDateParam && endDateParam) {
+          // Parse ISO8601 Datumsstrings
+          startTime = new Date(startDateParam).getTime();
+          endTime = new Date(endDateParam).getTime();
+          queryMode = 'range';
+        } else {
+          // Fallback: Relative Stunden
+          startTime = Date.now() - (hours * 60 * 60 * 1000);
+          endTime = Date.now();
+        }
+
+        // SQL Query aufbauen
         let query = `
           SELECT exchange, symbol, funding_rate_percent, annualized_rate, collected_at
           FROM unified_funding_rates
-          WHERE collected_at > ?
+          WHERE collected_at BETWEEN ? AND ?
         `;
-        const params: any[] = [cutoffTime];
+        const params: any[] = [startTime, endTime];
 
         if (exchange) {
           query += ' AND exchange = ?';
@@ -234,15 +263,26 @@ export default {
 
         const { results } = await env.DB.prepare(query).bind(...params).all();
 
+        // Response mit zusätzlichen Informationen
+        const responseData: any = {
+          symbol: symbol || 'all',
+          exchange: exchange || 'all',
+          count: results.length,
+          results,
+          timestamp: Date.now(),
+        };
+
+        if (queryMode === 'range') {
+          responseData.startTime = startTime;
+          responseData.endTime = endTime;
+          responseData.startDate = new Date(startTime).toISOString();
+          responseData.endDate = new Date(endTime).toISOString();
+        } else {
+          responseData.hours = hours;
+        }
+
         return new Response(
-          JSON.stringify({
-            symbol: symbol || 'all',
-            exchange: exchange || 'all',
-            hours,
-            count: results.length,
-            results,
-            timestamp: Date.now(),
-          }),
+          JSON.stringify(responseData),
           {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           }
