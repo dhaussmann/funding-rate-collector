@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Wrangler
+.wrangler/
+.mf/
+.dev.vars
+worker-configuration.d.ts
+
+# TypeScript
+*.tsbuildinfo
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+wrangler.toml.backup
+
+# Database (optional - wenn du lokale DB hast)
+*.db
+*.sqlite
