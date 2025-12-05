@@ -50,6 +50,19 @@ CREATE TABLE binance_funding_history (
 );
 CREATE INDEX idx_binance_symbol_time ON binance_funding_history(symbol, collected_at);
 
+-- Paradex Original-Daten
+CREATE TABLE paradex_funding_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  base_asset TEXT NOT NULL,
+  funding_rate REAL NOT NULL,
+  mark_price REAL,
+  last_traded_price REAL,
+  collected_at INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_paradex_symbol_time ON paradex_funding_history(symbol, collected_at);
+
 -- ============================================
 -- VEREINHEITLICHTE DATEN (alle Börsen zusammen)
 -- ============================================

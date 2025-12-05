@@ -1,11 +1,11 @@
 # Funding Rate Collector
 
-A Cloudflare Worker that collects and compares funding rates from multiple cryptocurrency exchanges (Hyperliquid, Lighter, Aster).
+A Cloudflare Worker that collects and compares funding rates from multiple cryptocurrency exchanges (Hyperliquid, Lighter, Aster, Binance, Paradex).
 
 ## Features
 
 - ✅ **Automatic hourly collection** via Cron Jobs
-- ✅ **Multi-exchange support**: Hyperliquid, Lighter, Aster, Binance
+- ✅ **Multi-exchange support**: Hyperliquid, Lighter, Aster, Binance, Paradex
 - ✅ **Standardized data format** across all exchanges
 - ✅ **REST API** for querying and comparing rates
 - ✅ **Historical data collection** scripts
@@ -79,7 +79,8 @@ funding-rate-collector/
 │   │   ├── hyperliquid.ts
 │   │   ├── lighter.ts
 │   │   ├── aster.ts
-│   │   └── binance.ts
+│   │   ├── binance.ts
+│   │   └── paradex.ts
 │   └── database/
 │       └── operations.ts     # Database operations
 ├── scripts/                  # Data collection scripts
@@ -96,7 +97,7 @@ All funding rates are stored in a standardized format:
 
 ```typescript
 {
-  exchange: string;           // "hyperliquid", "lighter", "aster"
+  exchange: string;           // "hyperliquid", "lighter", "aster", "binance", "paradex"
   symbol: string;             // "BTC", "ETH", "HYPE"
   funding_rate: number;       // Decimal: 0.000125
   funding_rate_percent: number; // Percent: 0.0125
@@ -147,6 +148,8 @@ See `schema.sql` for the complete database structure including:
 - `hyperliquid_funding_history` - Hyperliquid original data
 - `lighter_funding_history` - Lighter original data
 - `aster_funding_history` - Aster original data
+- `binance_funding_history` - Binance original data
+- `paradex_funding_history` - Paradex original data
 
 ## Contributing
 

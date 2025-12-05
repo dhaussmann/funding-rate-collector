@@ -3,9 +3,11 @@ import {
   collectCurrentHyperliquid,
   collectCurrentLighter,
   collectCurrentAster,
+  collectCurrentParadex,
   collectHistoricalAster,
   collectHistoricalLighter,
   collectHistoricalHyperliquid,
+  collectHistoricalParadex,
 } from './collectors';
 import { saveToDBCurrent } from './database/operations';
 
@@ -19,18 +21,20 @@ export default {
         collectCurrentHyperliquid(env),
         collectCurrentLighter(env),
         collectCurrentAster(env),
+        collectCurrentParadex(env),
       ]);
 
       const stats = {
         hyperliquid: 0,
         lighter: 0,
         aster: 0,
+        paradex: 0,
         errors: [] as string[],
       };
 
       for (let i = 0; i < results.length; i++) {
         const result = results[i];
-        const exchangeName = ['hyperliquid', 'lighter', 'aster'][i];
+        const exchangeName = ['hyperliquid', 'lighter', 'aster', 'paradex'][i];
 
         if (result.status === 'fulfilled') {
           const { unified, original } = result.value;
@@ -88,17 +92,18 @@ export default {
           collectCurrentHyperliquid(env),
           collectCurrentLighter(env),
           collectCurrentAster(env),
+          collectCurrentParadex(env),
         ]);
 
         const stats = {
           hyperliquid: 0,
           lighter: 0,
           aster: 0,
-
+          paradex: 0,
           errors: [] as string[],
         };
 
-        const exchanges = ['hyperliquid', 'lighter', 'aster'];
+        const exchanges = ['hyperliquid', 'lighter', 'aster', 'paradex'];
 
         for (let i = 0; i < results.length; i++) {
           const result = results[i];
@@ -398,6 +403,9 @@ export default {
             break;
           case 'hyperliquid':
             result = await collectHistoricalHyperliquid(env, symbol, startTime, endTime);
+            break;
+          case 'paradex':
+            result = await collectHistoricalParadex(env, symbol, startTime, endTime);
             break;
           default:
             return new Response(JSON.stringify({ error: 'Invalid exchange' }), {

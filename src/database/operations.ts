@@ -5,6 +5,7 @@ import {
   LighterOriginal,
   AsterOriginal,
   BinanceOriginal,
+  ParadexOriginal,
 } from '../types';
 
 export async function saveToDBCurrent(
@@ -90,6 +91,23 @@ async function saveOriginalData(env: Env, exchange: string, original: any[]): Pr
           o.base_asset,
           o.funding_rate,
           o.funding_time,
+          o.collected_at || Date.now()
+        )
+      );
+      break;
+
+    case 'paradex':
+      stmt = env.DB.prepare(`
+        INSERT INTO paradex_funding_history (symbol, base_asset, funding_rate, mark_price, last_traded_price, collected_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      batch = original.map((o: ParadexOriginal) =>
+        stmt.bind(
+          o.symbol,
+          o.base_asset,
+          o.funding_rate,
+          o.mark_price,
+          o.last_traded_price,
           o.collected_at || Date.now()
         )
       );
