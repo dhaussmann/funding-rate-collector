@@ -3,11 +3,9 @@ import {
   collectCurrentHyperliquid,
   collectCurrentLighter,
   collectCurrentAster,
-  collectCurrentParadex,
   collectHistoricalAster,
   collectHistoricalLighter,
   collectHistoricalHyperliquid,
-  collectHistoricalParadex,
 } from './collectors';
 import { saveToDBCurrent } from './database/operations';
 
@@ -21,20 +19,18 @@ export default {
         collectCurrentHyperliquid(env),
         collectCurrentLighter(env),
         collectCurrentAster(env),
-        collectCurrentParadex(env),
       ]);
 
       const stats = {
         hyperliquid: 0,
         lighter: 0,
         aster: 0,
-        paradex: 0,
         errors: [] as string[],
       };
 
       for (let i = 0; i < results.length; i++) {
         const result = results[i];
-        const exchangeName = ['hyperliquid', 'lighter', 'aster', 'paradex'][i];
+        const exchangeName = ['hyperliquid', 'lighter', 'aster'][i];
 
         if (result.status === 'fulfilled') {
           const { unified, original } = result.value;
@@ -92,18 +88,17 @@ export default {
           collectCurrentHyperliquid(env),
           collectCurrentLighter(env),
           collectCurrentAster(env),
-          collectCurrentParadex(env),
         ]);
 
         const stats = {
           hyperliquid: 0,
           lighter: 0,
           aster: 0,
-          paradex: 0,
+
           errors: [] as string[],
         };
 
-        const exchanges = ['hyperliquid', 'lighter', 'aster', 'paradex'];
+        const exchanges = ['hyperliquid', 'lighter', 'aster'];
 
         for (let i = 0; i < results.length; i++) {
           const result = results[i];
@@ -145,31 +140,46 @@ export default {
       }
 
       if (path === '/rates') {
-        const exchange = url.searchParams.get('exchange');
-        const symbol = url.searchParams.get('symbol');
-        const limit = parseInt(url.searchParams.get('limit') || '100');
+  const exchange = url.searchParams.get('exchange');
+  const symbol = url.searchParams.get('symbol');
+  const limit = parseInt(url.searchParams.get('limit') || '10000');
 
-        let query = 'SELECT * FROM unified_funding_rates WHERE 1=1';
-        const params: any[] = [];
+  // Hole die neuesten Daten pro Exchange/Symbol Kombination
+  let query = `
+    SELECT * FROM unified_funding_rates
+    WHERE (exchange, symbol, collected_at) IN (
+      SELECT exchange, symbol, MAX(collected_at)
+      FROM unified_funding_rates
+      WHERE 1=1
+  `;
+  
+  const params: any[] = [];
 
-        if (exchange) {
-          query += ' AND exchange = ?';
-          params.push(exchange);
-        }
-        if (symbol) {
-          query += ' AND symbol = ?';
-          params.push(symbol);
-        }
+  if (exchange) {
+    query += ' AND exchange = ?';
+    params.push(exchange);
+  }
+  
+  if (symbol) {
+    query += ' AND symbol = ?';
+    params.push(symbol);
+  }
 
-        query += ' ORDER BY collected_at DESC LIMIT ?';
-        params.push(limit);
+  query += `
+      GROUP BY exchange, symbol
+    )
+    ORDER BY exchange, symbol
+    LIMIT ?
+  `;
+  
+  params.push(limit);
 
-        const { results } = await env.DB.prepare(query).bind(...params).all();
+  const { results } = await env.DB.prepare(query).bind(...params).all();
 
-        return new Response(JSON.stringify(results), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+  return new Response(JSON.stringify(results), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
 
       // ============================================
       // FIXED: /compare Endpoint
@@ -211,7 +221,7 @@ export default {
       if (path === '/history') {
         const symbol = url.searchParams.get('symbol');
         const exchange = url.searchParams.get('exchange');
-        const limit = parseInt(url.searchParams.get('limit') || '1000');
+        const limit = parseInt(url.searchParams.get('limit') || '10000');
 
         // Datumsbereich-Parameter
         let startTime: number;
@@ -403,9 +413,6 @@ export default {
             break;
           case 'hyperliquid':
             result = await collectHistoricalHyperliquid(env, symbol, startTime, endTime);
-            break;
-          case 'paradex':
-            result = await collectHistoricalParadex(env, symbol, startTime, endTime);
             break;
           default:
             return new Response(JSON.stringify({ error: 'Invalid exchange' }), {

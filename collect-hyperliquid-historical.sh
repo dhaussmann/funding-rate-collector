@@ -6,7 +6,7 @@
 START_TIME=1735689600000  # 2025-01-01 00:00:00 UTC (Millisekunden)
 END_TIME=$(date +%s)000   # Jetzt (Millisekunden)
 RATE_LIMIT=1              # Sekunden zwischen Requests
-CHUNK_SIZE_DAYS=7         # Sammle in 7-Tages-Blöcken um unter 500 Records zu bleiben
+CHUNK_SIZE_DAYS=20         # Sammle in 7-Tages-Blöcken um unter 500 Records zu bleiben
 
 # ============================================
 # Farben
