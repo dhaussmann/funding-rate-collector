@@ -3,7 +3,7 @@ export interface Env {
 }
 
 export interface UnifiedFundingRate {
-  exchange: 'hyperliquid' | 'lighter' | 'aster' | 'binance';
+  exchange: 'hyperliquid' | 'lighter' | 'aster' | 'binance' | 'paradex';
   symbol: string;
   tradingPair: string;
   fundingRate: number;
@@ -40,6 +40,15 @@ export interface BinanceOriginal {
   base_asset: string;
   funding_rate: number;
   funding_time: number;
+  collected_at: number;
+}
+
+export interface ParadexOriginal {
+  symbol: string;
+  base_asset: string;
+  funding_rate: number;
+  mark_price: number;
+  last_traded_price: number;
   collected_at: number;
 }
 
