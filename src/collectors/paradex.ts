@@ -32,6 +32,11 @@ export async function collectCurrentParadex(env: Env): Promise<CollectionResult>
           continue;
         }
 
+        // Only collect perpetual contracts, skip options (e.g., "BTC-USD-96000-C")
+        if (!symbol.endsWith('-PERP')) {
+          continue;
+        }
+
         // Extract base asset from symbol (e.g., "BTC-USD-PERP" -> "BTC")
         const baseAsset = symbol.split('-')[0];
         const fundingRate = parseFloat(market.funding_rate);
