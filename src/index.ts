@@ -9,46 +9,83 @@ import {
   collectHistoricalHyperliquid,
   collectHistoricalParadex,
 } from './collectors';
-import { saveToDBCurrent } from './database/operations';
+import { collectParadexMinute, aggregateParadexHourly } from './collectors/paradex';
+import { saveToDBCurrent, saveParadexMinuteData, saveParadexHourlyAverages } from './database/operations';
 
 export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    console.log('[CRON] Starting hourly funding rate collection...');
     const startTime = Date.now();
+    const now = new Date();
+    const currentMinute = now.getUTCMinutes();
 
     try {
-      const results = await Promise.allSettled([
-        collectCurrentHyperliquid(env),
-        collectCurrentLighter(env),
-        collectCurrentAster(env),
-        collectCurrentParadex(env),
-      ]);
-
-      const stats = {
-        hyperliquid: 0,
-        lighter: 0,
-        aster: 0,
-        paradex: 0,
-        errors: [] as string[],
-      };
-
-      for (let i = 0; i < results.length; i++) {
-        const result = results[i];
-        const exchangeName = ['hyperliquid', 'lighter', 'aster', 'paradex'][i];
-
-        if (result.status === 'fulfilled') {
-          const { unified, original } = result.value;
-          stats[exchangeName as keyof typeof stats] = unified.length;
-          await saveToDBCurrent(env, exchangeName, unified, original);
-        } else {
-          const error = `${exchangeName}: ${result.reason}`;
-          stats.errors.push(error);
-          console.error(`[CRON] ${error}`);
+      // ===== MINÜTLICH: Paradex Datensammlung =====
+      console.log('[CRON] Starting Paradex minute collection...');
+      try {
+        const paradexMinuteData = await collectParadexMinute(env);
+        if (paradexMinuteData.length > 0) {
+          await saveParadexMinuteData(env, paradexMinuteData);
+          console.log(`[CRON] Paradex minute: Saved ${paradexMinuteData.length} records`);
         }
+      } catch (error) {
+        console.error('[CRON] Paradex minute collection failed:', error);
       }
 
-      const duration = Date.now() - startTime;
-      console.log('[CRON] Collection completed:', { ...stats, duration: `${duration}ms` });
+      // ===== STÜNDLICH (Minute 1): Andere Exchanges + Paradex Aggregation =====
+      if (currentMinute === 1) {
+        console.log('[CRON] Starting hourly tasks (other exchanges + Paradex aggregation)...');
+
+        // 1. Andere Exchanges sammeln
+        const results = await Promise.allSettled([
+          collectCurrentHyperliquid(env),
+          collectCurrentLighter(env),
+          collectCurrentAster(env),
+          collectCurrentParadex(env), // Legacy REST API Collection
+        ]);
+
+        const stats = {
+          hyperliquid: 0,
+          lighter: 0,
+          aster: 0,
+          paradex_legacy: 0,
+          paradex_hourly: 0,
+          errors: [] as string[],
+        };
+
+        for (let i = 0; i < results.length; i++) {
+          const result = results[i];
+          const exchangeName = ['hyperliquid', 'lighter', 'aster', 'paradex'][i];
+
+          if (result.status === 'fulfilled') {
+            const { unified, original } = result.value;
+            stats[exchangeName as keyof typeof stats] = unified.length;
+            await saveToDBCurrent(env, exchangeName, unified, original);
+          } else {
+            const error = `${exchangeName}: ${result.reason}`;
+            stats.errors.push(error);
+            console.error(`[CRON] ${error}`);
+          }
+        }
+
+        // 2. Paradex Stündliche Aggregation
+        try {
+          const paradexHourly = await aggregateParadexHourly(env);
+          if (paradexHourly.length > 0) {
+            await saveParadexHourlyAverages(env, paradexHourly);
+            stats.paradex_hourly = paradexHourly.length;
+            console.log(`[CRON] Paradex hourly: Aggregated ${paradexHourly.length} symbols`);
+          }
+        } catch (error) {
+          console.error('[CRON] Paradex hourly aggregation failed:', error);
+          stats.errors.push(`paradex_hourly: ${error}`);
+        }
+
+        const duration = Date.now() - startTime;
+        console.log('[CRON] Hourly tasks completed:', { ...stats, duration: `${duration}ms` });
+      }
+
+      const totalDuration = Date.now() - startTime;
+      console.log(`[CRON] All tasks completed in ${totalDuration}ms`);
     } catch (error) {
       console.error('[CRON] Fatal error:', error);
       throw error;
@@ -72,7 +109,18 @@ export default {
     try {
       if (path === '/' || path === '') {
         return new Response(
-          'Funding Rate Collector API\n\nEndpoints:\n- /health\n- /collect\n- /rates\n- /compare?symbol=BTC\n- /history?symbol=HYPE&hours=24\n- /debug?symbol=HYPE\n- /stats',
+          'Funding Rate Collector API\n\n' +
+          'General Endpoints:\n' +
+          '- /health\n' +
+          '- /collect\n' +
+          '- /rates\n' +
+          '- /compare?symbol=BTC\n' +
+          '- /history?symbol=HYPE&hours=24\n' +
+          '- /debug?symbol=HYPE\n' +
+          '- /stats\n' +
+          '\nParadex Specific Endpoints:\n' +
+          '- /paradex/hourly?symbol=BTC&hours=24\n' +
+          '- /paradex/minute?symbol=BTC&minutes=60',
           {
             headers: { ...corsHeaders, 'Content-Type': 'text/plain' },
           }
@@ -437,6 +485,111 @@ export default {
             exchange,
             symbol,
             records: result.unified.length,
+          }),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      // ============================================
+      // NEU: /paradex/hourly - Stündliche Aggregationen
+      // ============================================
+      if (path === '/paradex/hourly') {
+        const symbol = url.searchParams.get('symbol');
+        const hours = parseInt(url.searchParams.get('hours') || '24');
+        const limit = parseInt(url.searchParams.get('limit') || '1000');
+
+        const startTime = Date.now() - (hours * 60 * 60 * 1000);
+
+        let query = `
+          SELECT
+            symbol,
+            base_asset,
+            hour_timestamp,
+            avg_funding_rate,
+            avg_funding_premium,
+            avg_mark_price,
+            avg_underlying_price,
+            funding_index_start,
+            funding_index_end,
+            funding_index_delta,
+            sample_count,
+            datetime(hour_timestamp/1000, 'unixepoch') as hour_time
+          FROM paradex_hourly_averages
+          WHERE hour_timestamp >= ?
+        `;
+
+        const params: any[] = [startTime];
+
+        if (symbol) {
+          query += ' AND base_asset = ?';
+          params.push(symbol);
+        }
+
+        query += ' ORDER BY hour_timestamp DESC LIMIT ?';
+        params.push(limit);
+
+        const { results } = await env.DB.prepare(query).bind(...params).all();
+
+        return new Response(
+          JSON.stringify({
+            symbol: symbol || 'all',
+            hours,
+            count: results.length,
+            results,
+            timestamp: Date.now(),
+          }),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      // ============================================
+      // NEU: /paradex/minute - Minütliche Daten
+      // ============================================
+      if (path === '/paradex/minute') {
+        const symbol = url.searchParams.get('symbol');
+        const minutes = parseInt(url.searchParams.get('minutes') || '60');
+        const limit = parseInt(url.searchParams.get('limit') || '1000');
+
+        const startTime = Date.now() - (minutes * 60 * 1000);
+
+        let query = `
+          SELECT
+            symbol,
+            base_asset,
+            funding_rate,
+            funding_index,
+            funding_premium,
+            mark_price,
+            underlying_price,
+            collected_at,
+            datetime(collected_at/1000, 'unixepoch') as collected_time
+          FROM paradex_minute_data
+          WHERE collected_at >= ?
+        `;
+
+        const params: any[] = [startTime];
+
+        if (symbol) {
+          query += ' AND base_asset = ?';
+          params.push(symbol);
+        }
+
+        query += ' ORDER BY collected_at DESC LIMIT ?';
+        params.push(limit);
+
+        const { results } = await env.DB.prepare(query).bind(...params).all();
+
+        return new Response(
+          JSON.stringify({
+            symbol: symbol || 'all',
+            minutes,
+            count: results.length,
+            results,
+            timestamp: Date.now(),
           }),
           {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -5,7 +5,7 @@ compatibility_date = "2024-11-30"
 compatibility_flags = ["nodejs_compat"]
 
 [triggers]
-crons = ["0 * * * *"]
+crons = ["* * * * *"]  # Jede Minute für Paradex, stündlich für andere Exchanges
 
 [[d1_databases]]
 binding = "DB"
