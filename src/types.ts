@@ -52,6 +52,31 @@ export interface ParadexOriginal {
   collected_at: number;
 }
 
+export interface ParadexMinuteData {
+  symbol: string;
+  base_asset: string;
+  funding_rate: number;
+  funding_index: number;
+  funding_premium: number;
+  mark_price: number;
+  underlying_price: number | null;
+  collected_at: number;
+}
+
+export interface ParadexHourlyAverage {
+  symbol: string;
+  base_asset: string;
+  hour_timestamp: number;
+  avg_funding_rate: number;
+  avg_funding_premium: number;
+  avg_mark_price: number;
+  avg_underlying_price: number | null;
+  funding_index_start: number;
+  funding_index_end: number;
+  funding_index_delta: number;
+  sample_count: number;
+}
+
 export interface CollectionResult {
   unified: UnifiedFundingRate[];
   original: any[];

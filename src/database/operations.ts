@@ -6,6 +6,8 @@ import {
   AsterOriginal,
   BinanceOriginal,
   ParadexOriginal,
+  ParadexMinuteData,
+  ParadexHourlyAverage,
 } from '../types';
 
 export async function saveToDBCurrent(
@@ -141,4 +143,88 @@ async function saveUnifiedData(env: Env, unified: UnifiedFundingRate[]): Promise
   );
 
   await env.DB.batch(batch);
+}
+
+/**
+ * Speichert minütliche Paradex Daten
+ */
+export async function saveParadexMinuteData(env: Env, data: ParadexMinuteData[]): Promise<void> {
+  if (data.length === 0) return;
+
+  try {
+    const stmt = env.DB.prepare(`
+      INSERT INTO paradex_minute_data (
+        symbol, base_asset, funding_rate, funding_index, funding_premium,
+        mark_price, underlying_price, collected_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const batch = data.map((d) =>
+      stmt.bind(
+        d.symbol,
+        d.base_asset,
+        d.funding_rate,
+        d.funding_index,
+        d.funding_premium,
+        d.mark_price,
+        d.underlying_price,
+        d.collected_at
+      )
+    );
+
+    await env.DB.batch(batch);
+    console.log(`[DB] Saved ${data.length} Paradex minute data records`);
+  } catch (error) {
+    console.error('[DB] Failed to save Paradex minute data:', error);
+    throw error;
+  }
+}
+
+/**
+ * Speichert stündliche Paradex Aggregationen
+ */
+export async function saveParadexHourlyAverages(env: Env, data: ParadexHourlyAverage[]): Promise<void> {
+  if (data.length === 0) return;
+
+  try {
+    const stmt = env.DB.prepare(`
+      INSERT INTO paradex_hourly_averages (
+        symbol, base_asset, hour_timestamp,
+        avg_funding_rate, avg_funding_premium, avg_mark_price, avg_underlying_price,
+        funding_index_start, funding_index_end, funding_index_delta,
+        sample_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(symbol, hour_timestamp) DO UPDATE SET
+        avg_funding_rate = excluded.avg_funding_rate,
+        avg_funding_premium = excluded.avg_funding_premium,
+        avg_mark_price = excluded.avg_mark_price,
+        avg_underlying_price = excluded.avg_underlying_price,
+        funding_index_start = excluded.funding_index_start,
+        funding_index_end = excluded.funding_index_end,
+        funding_index_delta = excluded.funding_index_delta,
+        sample_count = excluded.sample_count
+    `);
+
+    const batch = data.map((d) =>
+      stmt.bind(
+        d.symbol,
+        d.base_asset,
+        d.hour_timestamp,
+        d.avg_funding_rate,
+        d.avg_funding_premium,
+        d.avg_mark_price,
+        d.avg_underlying_price,
+        d.funding_index_start,
+        d.funding_index_end,
+        d.funding_index_delta,
+        d.sample_count
+      )
+    );
+
+    await env.DB.batch(batch);
+    console.log(`[DB] Saved ${data.length} Paradex hourly average records`);
+  } catch (error) {
+    console.error('[DB] Failed to save Paradex hourly averages:', error);
+    throw error;
+  }
 }
