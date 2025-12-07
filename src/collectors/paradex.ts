@@ -19,138 +19,112 @@ interface ParadexWSMessage {
 }
 
 /**
- * Sammelt minütliche Paradex Funding Daten über WebSocket
+ * Sammelt minütliche Paradex Funding Daten über REST API
+ *
+ * HINWEIS: Da Paradex funding_index nur über WebSocket bereitstellt und
+ * Cloudflare Workers WebSocket-Clients in scheduled contexts nicht unterstützen,
+ * verwenden wir eine Approximation:
+ *
+ * funding_index wird durch Integration der funding_rate über Zeit berechnet.
+ * funding_premium wird aus funding_rate * 8h (da Paradex 8h rates nutzt) berechnet.
  */
 export async function collectParadexMinute(env: Env): Promise<ParadexMinuteData[]> {
-  return new Promise((resolve, reject) => {
-    try {
-      console.log('[Paradex] Starting WebSocket collection...');
+  try {
+    console.log('[Paradex] Starting minute collection via REST API...');
 
-      const ws = new WebSocket('wss://ws.api.prod.paradex.trade/v1');
-      const collectedData: Map<string, ParadexMinuteData> = new Map();
-      const timeout = 30000; // 30 Sekunden Timeout
-      let timeoutId: NodeJS.Timeout;
+    const response = await fetch('https://api.prod.paradex.trade/v1/markets/summary?market=ALL', {
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
 
-      // Cleanup Funktion
-      const cleanup = () => {
-        clearTimeout(timeoutId);
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
-
-      // Timeout Handler
-      timeoutId = setTimeout(() => {
-        console.log('[Paradex] WebSocket timeout, closing connection');
-        cleanup();
-        if (collectedData.size > 0) {
-          resolve(Array.from(collectedData.values()));
-        } else {
-          reject(new Error('WebSocket timeout - no data collected'));
-        }
-      }, timeout);
-
-      // WebSocket Open Handler
-      ws.addEventListener('open', () => {
-        console.log('[Paradex] WebSocket connected');
-
-        // Subscribe zu funding_data für alle Markets
-        const subscribeMessage = {
-          jsonrpc: '2.0',
-          method: 'subscribe',
-          params: {
-            channel: 'funding_data',
-            market_symbol: 'ALL',
-          },
-          id: 1,
-        };
-
-        ws.send(JSON.stringify(subscribeMessage));
-        console.log('[Paradex] Subscribed to funding_data channel');
-      });
-
-      // WebSocket Message Handler
-      ws.addEventListener('message', (event: MessageEvent) => {
-        try {
-          const message: ParadexWSMessage = JSON.parse(event.data as string);
-
-          // Subscription Bestätigung
-          if (message.id === 1 && message.jsonrpc === '2.0') {
-            console.log('[Paradex] Subscription confirmed');
-            return;
-          }
-
-          // Funding Data Nachrichten
-          if (
-            message.method === 'subscription' &&
-            message.params?.channel === 'funding_data' &&
-            message.params.data
-          ) {
-            const data = message.params.data;
-            const market = data.market;
-
-            // Nur Perpetual Contracts (Format: "BTC-USD", nicht "BTC-USD-PERP")
-            // Paradex WS sendet market als "BTC-USD", nicht "BTC-USD-PERP"
-            if (!market || market.includes('-')) {
-              const parts = market.split('-');
-              if (parts.length >= 2) {
-                const baseAsset = parts[0];
-                const symbol = `${market}-PERP`;
-
-                const fundingData: ParadexMinuteData = {
-                  symbol: symbol,
-                  base_asset: baseAsset,
-                  funding_rate: parseFloat(data.funding_rate),
-                  funding_index: parseFloat(data.funding_index),
-                  funding_premium: parseFloat(data.funding_premium),
-                  mark_price: data.mark_price ? parseFloat(data.mark_price) : 0,
-                  underlying_price: data.underlying_price ? parseFloat(data.underlying_price) : null,
-                  collected_at: data.created_at * 1000, // Convert to milliseconds
-                };
-
-                collectedData.set(market, fundingData);
-                console.log(`[Paradex] Collected data for ${symbol} (${collectedData.size} total)`);
-              }
-            }
-
-            // Beende nach genug Daten (z.B. 50 markets oder 10 Sekunden)
-            if (collectedData.size >= 50) {
-              console.log(`[Paradex] Collected ${collectedData.size} markets, closing connection`);
-              cleanup();
-              resolve(Array.from(collectedData.values()));
-            }
-          }
-        } catch (err) {
-          console.error('[Paradex] Error parsing WebSocket message:', err);
-        }
-      });
-
-      // WebSocket Error Handler
-      ws.addEventListener('error', (event: Event) => {
-        console.error('[Paradex] WebSocket error:', event);
-        cleanup();
-        reject(new Error('WebSocket connection error'));
-      });
-
-      // WebSocket Close Handler
-      ws.addEventListener('close', (event: CloseEvent) => {
-        console.log(`[Paradex] WebSocket closed: ${event.code} ${event.reason}`);
-        cleanup();
-
-        if (collectedData.size > 0) {
-          resolve(Array.from(collectedData.values()));
-        } else if (!timeoutId) {
-          // Timeout hat bereits resolved/rejected
-          return;
-        } else {
-          reject(new Error('WebSocket closed without collecting data'));
-        }
-      });
-    } catch (error) {
-      console.error('[Paradex] Collection failed:', error);
-      reject(error);
+    if (!response.ok) {
+      throw new Error(`Paradex API returned ${response.status}`);
     }
-  });
+
+    const data = await response.json();
+
+    if (!data.results || !Array.isArray(data.results)) {
+      throw new Error('Unexpected API response format');
+    }
+
+    const minuteData: ParadexMinuteData[] = [];
+    const now = Date.now();
+
+    // Hole vorherigen funding_index aus der Datenbank
+    const previousIndexQuery = await env.DB.prepare(`
+      SELECT symbol, funding_index, collected_at
+      FROM paradex_minute_data
+      WHERE collected_at = (SELECT MAX(collected_at) FROM paradex_minute_data)
+    `).all();
+
+    const previousIndexMap = new Map<string, { index: number; timestamp: number }>();
+    if (previousIndexQuery.results) {
+      for (const row: any of previousIndexQuery.results) {
+        previousIndexMap.set(row.symbol, {
+          index: row.funding_index,
+          timestamp: row.collected_at,
+        });
+      }
+    }
+
+    for (const market of data.results) {
+      try {
+        const symbol = market.symbol;
+        if (!symbol || !market.funding_rate) {
+          continue;
+        }
+
+        // Nur Perpetual Contracts
+        if (!symbol.endsWith('-PERP')) {
+          continue;
+        }
+
+        const baseAsset = symbol.split('-')[0];
+        const fundingRate = parseFloat(market.funding_rate);
+        const markPrice = parseFloat(market.mark_price || '0');
+        const underlyingPrice = market.underlying_price ? parseFloat(market.underlying_price) : null;
+
+        // Berechne funding_premium: funding_rate ist 8h rate, premium ist der USDC Betrag
+        // Premium = funding_rate * mark_price (näherungsweise)
+        const fundingPremium = fundingRate * markPrice;
+
+        // Berechne funding_index durch Integration
+        let fundingIndex = 0;
+        const previous = previousIndexMap.get(symbol);
+
+        if (previous) {
+          // Zeit-Delta in Sekunden
+          const timeDelta = (now - previous.timestamp) / 1000;
+          // funding_index = previous_index + funding_premium * (time_delta / 8h_in_seconds)
+          // 8h = 8 * 3600 = 28800 seconds
+          fundingIndex = previous.index + (fundingPremium * timeDelta / 28800);
+        } else {
+          // Erster Datenpunkt: Starte bei 0
+          fundingIndex = 0;
+        }
+
+        minuteData.push({
+          symbol: symbol,
+          base_asset: baseAsset,
+          funding_rate: fundingRate,
+          funding_index: fundingIndex,
+          funding_premium: fundingPremium,
+          mark_price: markPrice,
+          underlying_price: underlyingPrice,
+          collected_at: now,
+        });
+      } catch (err) {
+        console.error(`[Paradex] Failed to parse market ${market.symbol}:`, err);
+      }
+    }
+
+    console.log(`[Paradex] Collected ${minuteData.length} minute data records via REST API`);
+    return minuteData;
+  } catch (error) {
+    console.error('[Paradex] Minute collection failed:', error);
+    throw error;
+  }
 }
 
 /**
