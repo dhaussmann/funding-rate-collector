@@ -177,7 +177,7 @@ while IFS= read -r MARKET; do
       HOURLY_COUNT=$(grep -c "unified_funding_rates" "$HOURLY_TEMP" 2>/dev/null || echo 0)
 
       printf "  Inserting %d hourly records into database...\n" "$HOURLY_COUNT"
-      wrangler d1 execute "$DB_NAME" --remote --file="$HOURLY_TEMP" > /dev/null 2>&1
+      npx wrangler d1 execute "$DB_NAME" --remote --file="$HOURLY_TEMP" > /dev/null 2>&1
 
       if [ $? -eq 0 ]; then
         printf "${GREEN}✓ %4d raw → %3d hourly (${CHUNKS_PROCESSED} samples)${NC}\n" "$MARKET_RAW_RECORDS" "$HOURLY_COUNT"
@@ -222,7 +222,7 @@ echo ""
 # Datenbank-Statistiken
 # ============================================
 echo -e "${YELLOW}Database Statistics:${NC}"
-wrangler d1 execute "$DB_NAME" --remote --command "
+npx wrangler d1 execute "$DB_NAME" --remote --command "
   SELECT
     COUNT(*) as total_records,
     COUNT(DISTINCT symbol) as unique_symbols,
@@ -234,7 +234,7 @@ wrangler d1 execute "$DB_NAME" --remote --command "
 
 echo ""
 echo -e "${YELLOW}Hourly aggregation statistics:${NC}"
-wrangler d1 execute "$DB_NAME" --remote --command "
+npx wrangler d1 execute "$DB_NAME" --remote --command "
   SELECT
     COUNT(*) as total_hours,
     COUNT(DISTINCT symbol) as unique_symbols,
