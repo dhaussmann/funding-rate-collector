@@ -112,7 +112,7 @@ while IFS= read -r MARKET; do
 
     if [ -s "$HOURLY_TEMP" ]; then
       HOURLY_COUNT=$(grep -c "unified_funding_rates" "$HOURLY_TEMP" 2>/dev/null || echo 0)
-      wrangler d1 execute "$DB_NAME" --remote --file="$HOURLY_TEMP" > /dev/null 2>&1
+      npx wrangler d1 execute "$DB_NAME" --remote --file="$HOURLY_TEMP" > /dev/null 2>&1
 
       if [ $? -eq 0 ]; then
         printf "${GREEN}✓ %d hourly${NC}\n" "$HOURLY_COUNT"
