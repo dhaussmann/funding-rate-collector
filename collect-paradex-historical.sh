@@ -138,11 +138,12 @@ while IFS= read -r MARKET; do
 
     # Gruppiere nach Stunde und berechne Durchschnitt
     # created_at ist in Millisekunden, funding_rate ist String
-    cat "$RAW_TEMP" | jq -r '
+    # LC_NUMERIC=C für gesamte Pipeline erzwingen (kritisch für Dezimal-Punkt)
+    LC_NUMERIC=C cat "$RAW_TEMP" | jq -r '
       (.created_at / 3600000 | floor * 3600000) as $hour |
       (.funding_rate | tonumber) as $rate |
       "\($hour):\($rate)"
-    ' | sort -n | awk -F: '
+    ' | sort -n | LC_NUMERIC=C awk -F: '
       {
         hour = $1
         rate = $2
