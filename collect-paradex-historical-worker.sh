@@ -37,7 +37,7 @@ TOTAL_HOURLY_RECORDS=0
 
 echo -e "${BLUE}[Worker $WORKER_ID] Started${NC}"
 echo "Markets file: $MARKETS_FILE"
-echo "Period: $(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d') to $(date -d "@$((END_TIME / 1000))" '+%Y-%m-%d')"
+echo "Period: $(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((START_TIME / 1000)) '+%Y-%m-%d') to $(date -d "@$((END_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((END_TIME / 1000)) '+%Y-%m-%d')"
 echo ""
 
 TOTAL_MARKETS=$(wc -l < "$MARKETS_FILE")

@@ -24,7 +24,7 @@ echo -e "${BLUE}=========================================${NC}"
 echo -e "${BLUE}Paradex Historical - Parallel Collection${NC}"
 echo -e "${BLUE}=========================================${NC}"
 echo "Workers: $NUM_WORKERS"
-echo "Period: $(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d') to $(date '+%Y-%m-%d')"
+echo "Period: $(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((START_TIME / 1000)) '+%Y-%m-%d') to $(date '+%Y-%m-%d')"
 echo "Rate: 25 req/s total (1500 req/min - at API limit)"
 echo ""
 
