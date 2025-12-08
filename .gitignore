@@ -28,7 +28,6 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
-logs/
 
 # Environment & Secrets
 .env
