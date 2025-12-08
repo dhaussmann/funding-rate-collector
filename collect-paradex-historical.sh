@@ -84,6 +84,14 @@ while IFS= read -r MARKET; do
   # ==========================================
   CHUNK_START=$START_TIME
 
+  # Berechne Gesamtzahl der Chunks
+  TOTAL_CHUNKS=$(( (END_TIME - START_TIME) / CHUNK_SIZE ))
+  if [ $(( (END_TIME - START_TIME) % CHUNK_SIZE )) -gt 0 ]; then
+    TOTAL_CHUNKS=$((TOTAL_CHUNKS + 1))
+  fi
+
+  printf "Fetching %d chunks...\n" "$TOTAL_CHUNKS"
+
   while [ $CHUNK_START -lt $END_TIME ]; do
     CHUNK_END=$((CHUNK_START + CHUNK_SIZE))
 
@@ -105,6 +113,13 @@ while IFS= read -r MARKET; do
       ((CHUNKS_PROCESSED++))
     fi
 
+    # Zeige Fortschritt alle 20 Chunks oder beim ersten Chunk
+    if [ $((CHUNKS_PROCESSED % 20)) -eq 0 ] || [ $CHUNKS_PROCESSED -eq 1 ]; then
+      CHUNK_PERCENT=$((CHUNKS_PROCESSED * 100 / TOTAL_CHUNKS))
+      CURRENT_DATE=$(date -d "@$((CHUNK_START / 1000))" '+%Y-%m-%d %H:%M' 2>/dev/null || date -r $((CHUNK_START / 1000)) '+%Y-%m-%d %H:%M' 2>/dev/null)
+      printf "  [%3d%%] Chunk %d/%d | %s | %d records\r" "$CHUNK_PERCENT" "$CHUNKS_PROCESSED" "$TOTAL_CHUNKS" "$CURRENT_DATE" "$MARKET_RAW_RECORDS"
+    fi
+
     # Nächster Chunk
     CHUNK_START=$CHUNK_END
 
@@ -112,10 +127,14 @@ while IFS= read -r MARKET; do
     sleep $RATE_LIMIT
   done
 
+  # Lösche Fortschrittszeile
+  printf "\033[2K\r"
+
   # ==========================================
   # Aggregiere auf stündliche Werte
   # ==========================================
   if [ $MARKET_RAW_RECORDS -gt 0 ]; then
+    printf "  Aggregating %d records to hourly averages...\n" "$MARKET_RAW_RECORDS"
     HOURLY_TEMP=$(mktemp)
 
     # Gruppiere nach Stunde und berechne Durchschnitt
@@ -156,6 +175,7 @@ while IFS= read -r MARKET; do
     if [ -s "$HOURLY_TEMP" ]; then
       HOURLY_COUNT=$(grep -c "unified_funding_rates" "$HOURLY_TEMP" 2>/dev/null || echo 0)
 
+      printf "  Inserting %d hourly records into database...\n" "$HOURLY_COUNT"
       wrangler d1 execute "$DB_NAME" --remote --file="$HOURLY_TEMP" > /dev/null 2>&1
 
       if [ $? -eq 0 ]; then
