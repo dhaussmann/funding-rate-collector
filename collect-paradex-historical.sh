@@ -3,10 +3,10 @@
 # ============================================
 # Konfiguration
 # ============================================
-START_TIME=1735689600  # 2025-01-01 00:00:00 UTC (SEKUNDEN!)
-END_TIME=$(date +%s)   # Jetzt (SEKUNDEN!)
-RATE_LIMIT=1           # Sekunden zwischen Requests
-PAGE_DELAY=0.2         # Sekunden zwischen Paginierungs-Requests
+START_TIME=1733011200000  # 2024-12-01 00:00:00 UTC (MILLISEKUNDEN!)
+END_TIME=$(date +%s)000   # Jetzt (MILLISEKUNDEN!)
+RATE_LIMIT=0.5            # Sekunden zwischen Requests
+CHUNK_SIZE=300000         # 5 Minuten in Millisekunden (60 Datensätze à 5 Sekunden)
 
 # ============================================
 # Farben
@@ -32,14 +32,16 @@ TOTAL_HOURLY_RECORDS=0
 
 echo -e "${BLUE}=========================================${NC}"
 echo -e "${BLUE}Paradex Historical Data Collection${NC}"
-echo -e "${BLUE}With Pagination & Hourly Aggregation${NC}"
+echo -e "${BLUE}5-Minute Chunks → Hourly Aggregation${NC}"
 echo -e "${BLUE}=========================================${NC}"
-echo "Period: 2025-01-01 to $(date '+%Y-%m-%d %H:%M:%S')"
-echo "Start Time: $START_TIME (seconds)"
-echo "End Time: $END_TIME (seconds)"
+START_DATE=$(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r $((START_TIME / 1000)) '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
+END_DATE=$(date '+%Y-%m-%d %H:%M:%S')
+echo "Period: $START_DATE to $END_DATE"
+echo "Start Time: $START_TIME (milliseconds)"
+echo "End Time: $END_TIME (milliseconds)"
 echo ""
-echo -e "${YELLOW}Note: API returns 5-second snapshots${NC}"
-echo -e "${YELLOW}      Aggregating to hourly averages${NC}"
+echo -e "${YELLOW}Strategy: 5-minute chunks (60 records each)${NC}"
+echo -e "${YELLOW}          12 chunks = 1 hour aggregation${NC}"
 echo ""
 
 # ============================================
@@ -72,17 +74,26 @@ while IFS= read -r MARKET; do
   printf "[%3d%%] (%3d/%3d) %-15s " "$PERCENT" "$CURRENT" "$TOTAL_COUNT" "$MARKET"
 
   MARKET_RAW_RECORDS=0
-  NEXT_URL="https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${START_TIME}"
-  PAGE=1
+  CHUNKS_PROCESSED=0
 
   # Erstelle temporäre Datei für alle 5-Sekunden Daten
   RAW_TEMP=$(mktemp)
 
   # ==========================================
-  # Paginierung: Sammle alle 5-Sekunden Daten
+  # Sammle Daten in 5-Minuten-Chunks
   # ==========================================
-  while [ -n "$NEXT_URL" ]; do
-    RESPONSE=$(curl -s "$NEXT_URL")
+  CHUNK_START=$START_TIME
+
+  while [ $CHUNK_START -lt $END_TIME ]; do
+    CHUNK_END=$((CHUNK_START + CHUNK_SIZE))
+
+    # Stelle sicher, dass wir nicht über END_TIME hinausgehen
+    if [ $CHUNK_END -gt $END_TIME ]; then
+      CHUNK_END=$END_TIME
+    fi
+
+    # API Call für 5-Minuten-Chunk
+    RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${CHUNK_START}&end_at=${CHUNK_END}")
 
     # Prüfe ob Daten vorhanden sind
     RECORDS_COUNT=$(echo "$RESPONSE" | jq '.results | length' 2>/dev/null)
@@ -91,19 +102,14 @@ while IFS= read -r MARKET; do
       # Speichere alle results in temp file
       echo "$RESPONSE" | jq -c '.results[]' >> "$RAW_TEMP"
       MARKET_RAW_RECORDS=$((MARKET_RAW_RECORDS + RECORDS_COUNT))
-
-      # Hole next URL
-      NEXT_URL=$(echo "$RESPONSE" | jq -r '.next // empty')
-
-      # Wenn next URL vorhanden, vervollständige sie
-      if [ -n "$NEXT_URL" ]; then
-        NEXT_URL="https://api.prod.paradex.trade${NEXT_URL}"
-        ((PAGE++))
-        sleep $PAGE_DELAY
-      fi
-    else
-      NEXT_URL=""
+      ((CHUNKS_PROCESSED++))
     fi
+
+    # Nächster Chunk
+    CHUNK_START=$CHUNK_END
+
+    # Rate limiting
+    sleep $RATE_LIMIT
   done
 
   # ==========================================
@@ -153,7 +159,7 @@ while IFS= read -r MARKET; do
       wrangler d1 execute "$DB_NAME" --remote --file="$HOURLY_TEMP" > /dev/null 2>&1
 
       if [ $? -eq 0 ]; then
-        printf "${GREEN}✓ %4d raw → %3d hourly (${PAGE} pages)${NC}\n" "$MARKET_RAW_RECORDS" "$HOURLY_COUNT"
+        printf "${GREEN}✓ %4d raw → %3d hourly (${CHUNKS_PROCESSED} chunks)${NC}\n" "$MARKET_RAW_RECORDS" "$HOURLY_COUNT"
         ((SUCCESS++))
         TOTAL_RAW_RECORDS=$((TOTAL_RAW_RECORDS + MARKET_RAW_RECORDS))
         TOTAL_HOURLY_RECORDS=$((TOTAL_HOURLY_RECORDS + HOURLY_COUNT))
