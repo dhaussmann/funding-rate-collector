@@ -1,4 +1,4 @@
-import { Env } from './types';
+import { Env, UnifiedFundingRate } from './types';
 import {
   collectCurrentHyperliquid,
   collectCurrentLighter,
@@ -74,6 +74,40 @@ export default {
             await saveParadexHourlyAverages(env, paradexHourly);
             stats.paradex_hourly = paradexHourly.length;
             console.log(`[CRON] Paradex hourly: Aggregated ${paradexHourly.length} symbols`);
+
+            // Speichere auch in unified_funding_rates für /compare Endpoint
+            const unifiedFromHourly: UnifiedFundingRate[] = paradexHourly.map((h) => ({
+              exchange: 'paradex',
+              symbol: h.base_asset,
+              tradingPair: h.symbol,
+              fundingRate: h.funding_index_delta, // Verwende 1h delta statt 8h rate
+              fundingRatePercent: h.funding_index_delta * 100,
+              annualizedRate: h.funding_index_delta * 100 * 24 * 365, // 1h rate → annualisiert
+              collectedAt: h.hour_timestamp,
+            }));
+
+            // Update unified_funding_rates mit besseren Daten
+            const stmt = env.DB.prepare(`
+              INSERT INTO unified_funding_rates (
+                exchange, symbol, trading_pair, funding_rate,
+                funding_rate_percent, annualized_rate, collected_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            const batch = unifiedFromHourly.map((rate) =>
+              stmt.bind(
+                rate.exchange,
+                rate.symbol,
+                rate.tradingPair,
+                rate.fundingRate,
+                rate.fundingRatePercent,
+                rate.annualizedRate,
+                rate.collectedAt
+              )
+            );
+
+            await env.DB.batch(batch);
+            console.log(`[CRON] Updated unified_funding_rates with ${unifiedFromHourly.length} Paradex hourly records`);
           }
         } catch (error) {
           console.error('[CRON] Paradex hourly aggregation failed:', error);
