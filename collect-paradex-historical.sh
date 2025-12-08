@@ -4,9 +4,9 @@
 # Konfiguration
 # ============================================
 START_TIME=1735689600000  # 2025-01-01 00:00:00 UTC (MILLISEKUNDEN!)
-# Sammle nur die letzten 7 Tage statt bis heute
-END_TIME=$((START_TIME + 7 * 24 * 3600 * 1000))  # +7 Tage in Millisekunden
-RATE_LIMIT=0.5            # Sekunden zwischen Requests
+END_TIME=$(date +%s)000   # Jetzt (MILLISEKUNDEN!)
+RATE_LIMIT=0.2            # Sekunden zwischen Requests (schneller)
+
 CHUNK_SIZE=300000         # 5 Minuten in Millisekunden (60 Datensätze à 5 Sekunden)
 SAMPLE_INTERVAL=3600000   # Wie oft ein Sample nehmen? (1 Stunde = 3600000ms)
 
