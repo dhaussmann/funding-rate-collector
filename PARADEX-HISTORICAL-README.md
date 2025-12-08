@@ -2,35 +2,85 @@
 
 ## Overview
 
-Three scripts for collecting Paradex historical funding rate data:
+Five scripts for collecting Paradex historical funding rate data:
 
-1. **`collect-paradex-historical.sh`** - Single-threaded collection
-2. **`collect-paradex-historical-parallel.sh`** - Multi-threaded master script (RECOMMENDED)
-3. **`collect-paradex-historical-worker.sh`** - Worker script (called by parallel script)
+### 🚀 Recommended: Two-Phase Strategy
 
-## Quick Start
+1. **`collect-paradex-recent.sh`** - Collect last 30 days FIRST (highest priority)
+2. **`collect-paradex-backfill.sh`** - Iteratively collect older data (run multiple times)
 
-### Parallel Collection (Recommended - 5x faster)
+### Alternative: Single-Run Collection
+
+3. **`collect-paradex-historical-parallel.sh`** - Collect entire period at once
+4. **`collect-paradex-historical.sh`** - Single-threaded (slower, for testing)
+5. **`collect-paradex-historical-worker.sh`** - Worker script (used internally)
+
+---
+
+## 🎯 Quick Start (RECOMMENDED)
+
+### Phase 1: Collect Recent Data (Last 30 Days)
+
+```bash
+./collect-paradex-recent.sh
+```
+
+**Why run this first?**
+- ✅ Most recent data is most important
+- ✅ Fast: ~2 hours for 30 days
+- ✅ Get usable data immediately
+- ✅ Safe to interrupt - newest data secured
+
+**Runtime:** ~2 hours
+
+---
+
+### Phase 2: Backfill Historical Data
+
+```bash
+./collect-paradex-backfill.sh
+```
+
+**How it works:**
+1. Finds oldest data in database
+2. Collects 30 days before that
+3. Stops when reaching 2025-01-01
+4. **Run multiple times** until complete
+
+**Example workflow:**
+```bash
+# First run: Collects Nov 8 - Dec 8
+./collect-paradex-backfill.sh
+
+# Second run: Collects Oct 9 - Nov 8
+./collect-paradex-backfill.sh
+
+# Continue until complete...
+# Script will tell you when done!
+```
+
+**Runtime per iteration:** ~2 hours per 30-day period
+
+**Total iterations needed:** ~11 iterations (341 days ÷ 30)
+
+---
+
+## Alternative: All-At-Once Collection
+
+### Parallel Collection (Full Year)
 
 ```bash
 ./collect-paradex-historical-parallel.sh
 ```
 
-**Features:**
-- ✅ 5 parallel workers
-- ✅ Optimal API rate limit usage (25 req/s = 1500 req/min)
-- ✅ ~10 hours runtime for full year
-- ✅ Individual worker logs for monitoring
-- ✅ Automatic market distribution
+**When to use:**
+- You want all data in one run
+- You can leave it running for ~10 hours
+- You don't need incremental progress
 
-**Monitor progress:**
-```bash
-# Watch all workers
-tail -f /tmp/tmp.*/worker_*.log
+**Runtime:** ~10 hours for full year
 
-# Watch specific worker
-tail -f /tmp/tmp.*/worker_1.log
-```
+---
 
 ### Single-threaded Collection
 
@@ -89,11 +139,38 @@ For 341 days (2025-01-01 to 2025-12-08), 111 markets:
 | Parallel | 5 | ~10 hours | 100% (1500 req/min) |
 | Single | 1 | ~50 hours | 20% (300 req/min) |
 
+## Monitoring Progress
+
+### Recent Collection
+```bash
+# Watch all workers
+tail -f /tmp/tmp.*/worker_*.log
+
+# Check specific worker
+tail -f /tmp/tmp.*/worker_1.log
+```
+
+### Backfill Collection
+```bash
+# Check current status
+wrangler d1 execute funding-rates-db --remote --command "
+  SELECT
+    datetime(MIN(collected_at)/1000, 'unixepoch') as oldest,
+    datetime(MAX(collected_at)/1000, 'unixepoch') as newest,
+    COUNT(*) as total_records
+  FROM unified_funding_rates
+  WHERE exchange = 'paradex'
+"
+
+# Watch workers
+tail -f /tmp/tmp.*/worker_*.log
+```
+
 ## Troubleshooting
 
 **"Too Many Requests" error:**
 - Increase `RATE_LIMIT` value (e.g., from 0.2 to 0.3)
-- Reduce `NUM_WORKERS` in parallel script
+- Reduce `NUM_WORKERS` (e.g., from 5 to 3)
 
 **Worker hanging:**
 - Check logs: `cat /tmp/tmp.*/worker_*.log`
@@ -102,6 +179,10 @@ For 341 days (2025-01-01 to 2025-12-08), 111 markets:
 **Database errors:**
 - Ensure wrangler is authenticated: `wrangler whoami`
 - Check D1 database exists: `wrangler d1 list`
+
+**Backfill script says "No data found":**
+- Run `./collect-paradex-recent.sh` first
+- This creates the initial data to backfill from
 
 ## Example Output
 
