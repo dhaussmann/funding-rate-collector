@@ -3,7 +3,7 @@
 # ============================================
 # Konfiguration
 # ============================================
-START_TIME=1733011200000  # 2024-12-01 00:00:00 UTC (MILLISEKUNDEN!)
+START_TIME=1735689600000  # 2025-01-01 00:00:00 UTC (MILLISEKUNDEN!)
 END_TIME=$(date +%s)000   # Jetzt (MILLISEKUNDEN!)
 RATE_LIMIT=0.5            # Sekunden zwischen Requests
 CHUNK_SIZE=300000         # 5 Minuten in Millisekunden (60 Datensätze à 5 Sekunden)
