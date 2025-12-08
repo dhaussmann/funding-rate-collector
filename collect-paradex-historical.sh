@@ -156,10 +156,10 @@ while IFS= read -r MARKET; do
         }
       }
     ' | while IFS=: read -r HOUR AVG_RATE SAMPLE_COUNT; do
-      # Berechne Prozent und Annualisierung
+      # Verwende awk statt bc für bessere Handhabung von wissenschaftlicher Notation
       # Paradex verwendet 8h Funding Intervalle (3x täglich wie Binance)
-      FUNDING_RATE_PERCENT=$(echo "$AVG_RATE * 100" | bc -l)
-      ANNUALIZED_RATE=$(echo "$AVG_RATE * 100 * 3 * 365" | bc -l)
+      FUNDING_RATE_PERCENT=$(awk "BEGIN {printf \"%.18f\", $AVG_RATE * 100}")
+      ANNUALIZED_RATE=$(awk "BEGIN {printf \"%.18f\", $AVG_RATE * 100 * 3 * 365}")
 
       # Schreibe SQL für unified_funding_rates
       echo "INSERT OR IGNORE INTO unified_funding_rates (exchange, symbol, trading_pair, funding_rate, funding_rate_percent, annualized_rate, collected_at) VALUES ('paradex', '$BASE_ASSET', '$MARKET', $AVG_RATE, $FUNDING_RATE_PERCENT, $ANNUALIZED_RATE, $HOUR);" >> "$HOURLY_TEMP"
