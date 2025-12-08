@@ -7,6 +7,7 @@ START_TIME=1735689600000  # 2025-01-01 00:00:00 UTC (MILLISEKUNDEN!)
 END_TIME=$(date +%s)000   # Jetzt (MILLISEKUNDEN!)
 RATE_LIMIT=0.5            # Sekunden zwischen Requests
 CHUNK_SIZE=300000         # 5 Minuten in Millisekunden (60 Datensätze à 5 Sekunden)
+SAMPLE_INTERVAL=3600000   # Wie oft ein Sample nehmen? (1 Stunde = 3600000ms)
 
 # ============================================
 # Farben
@@ -40,8 +41,9 @@ echo "Period: $START_DATE to $END_DATE"
 echo "Start Time: $START_TIME (milliseconds)"
 echo "End Time: $END_TIME (milliseconds)"
 echo ""
-echo -e "${YELLOW}Strategy: 5-minute chunks (60 records each)${NC}"
-echo -e "${YELLOW}          12 chunks = 1 hour aggregation${NC}"
+SAMPLE_HOURS=$((SAMPLE_INTERVAL / 3600000))
+echo -e "${YELLOW}Strategy: One 5-minute sample every ${SAMPLE_HOURS}h${NC}"
+echo -e "${YELLOW}          (60 records per sample)${NC}"
 echo ""
 
 # ============================================
@@ -80,28 +82,24 @@ while IFS= read -r MARKET; do
   RAW_TEMP=$(mktemp)
 
   # ==========================================
-  # Sammle Daten in 5-Minuten-Chunks
+  # Sammle Daten: Ein 5-Min-Sample pro Intervall
   # ==========================================
-  CHUNK_START=$START_TIME
+  SAMPLE_TIME=$START_TIME
 
-  # Berechne Gesamtzahl der Chunks
-  TOTAL_CHUNKS=$(( (END_TIME - START_TIME) / CHUNK_SIZE ))
-  if [ $(( (END_TIME - START_TIME) % CHUNK_SIZE )) -gt 0 ]; then
-    TOTAL_CHUNKS=$((TOTAL_CHUNKS + 1))
+  # Berechne Gesamtzahl der Samples
+  TOTAL_SAMPLES=$(( (END_TIME - START_TIME) / SAMPLE_INTERVAL ))
+  if [ $(( (END_TIME - START_TIME) % SAMPLE_INTERVAL )) -gt 0 ]; then
+    TOTAL_SAMPLES=$((TOTAL_SAMPLES + 1))
   fi
 
-  printf "Fetching %d chunks...\n" "$TOTAL_CHUNKS"
+  printf "Fetching %d samples (one every ${SAMPLE_HOURS}h)...\n" "$TOTAL_SAMPLES"
 
-  while [ $CHUNK_START -lt $END_TIME ]; do
-    CHUNK_END=$((CHUNK_START + CHUNK_SIZE))
-
-    # Stelle sicher, dass wir nicht über END_TIME hinausgehen
-    if [ $CHUNK_END -gt $END_TIME ]; then
-      CHUNK_END=$END_TIME
-    fi
+  while [ $SAMPLE_TIME -lt $END_TIME ]; do
+    # Hole einen 5-Minuten-Chunk ab diesem Zeitpunkt
+    CHUNK_END=$((SAMPLE_TIME + CHUNK_SIZE))
 
     # API Call für 5-Minuten-Chunk
-    RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${CHUNK_START}&end_at=${CHUNK_END}")
+    RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${SAMPLE_TIME}&end_at=${CHUNK_END}")
 
     # Prüfe ob Daten vorhanden sind
     RECORDS_COUNT=$(echo "$RESPONSE" | jq '.results | length' 2>/dev/null)
@@ -113,15 +111,15 @@ while IFS= read -r MARKET; do
       ((CHUNKS_PROCESSED++))
     fi
 
-    # Zeige Fortschritt alle 20 Chunks oder beim ersten Chunk
-    if [ $((CHUNKS_PROCESSED % 20)) -eq 0 ] || [ $CHUNKS_PROCESSED -eq 1 ]; then
-      CHUNK_PERCENT=$((CHUNKS_PROCESSED * 100 / TOTAL_CHUNKS))
-      CURRENT_DATE=$(date -d "@$((CHUNK_START / 1000))" '+%Y-%m-%d %H:%M' 2>/dev/null || date -r $((CHUNK_START / 1000)) '+%Y-%m-%d %H:%M' 2>/dev/null)
-      printf "  [%3d%%] Chunk %d/%d | %s | %d records\r" "$CHUNK_PERCENT" "$CHUNKS_PROCESSED" "$TOTAL_CHUNKS" "$CURRENT_DATE" "$MARKET_RAW_RECORDS"
+    # Zeige Fortschritt alle 10 Samples oder beim ersten Sample
+    if [ $((CHUNKS_PROCESSED % 10)) -eq 0 ] || [ $CHUNKS_PROCESSED -eq 1 ]; then
+      CHUNK_PERCENT=$((CHUNKS_PROCESSED * 100 / TOTAL_SAMPLES))
+      CURRENT_DATE=$(date -d "@$((SAMPLE_TIME / 1000))" '+%Y-%m-%d %H:%M' 2>/dev/null || date -r $((SAMPLE_TIME / 1000)) '+%Y-%m-%d %H:%M' 2>/dev/null)
+      printf "  [%3d%%] Sample %d/%d | %s | %d records\r" "$CHUNK_PERCENT" "$CHUNKS_PROCESSED" "$TOTAL_SAMPLES" "$CURRENT_DATE" "$MARKET_RAW_RECORDS"
     fi
 
-    # Nächster Chunk
-    CHUNK_START=$CHUNK_END
+    # Nächstes Sample (z.B. +1 Stunde)
+    SAMPLE_TIME=$((SAMPLE_TIME + SAMPLE_INTERVAL))
 
     # Rate limiting
     sleep $RATE_LIMIT
@@ -179,7 +177,7 @@ while IFS= read -r MARKET; do
       wrangler d1 execute "$DB_NAME" --remote --file="$HOURLY_TEMP" > /dev/null 2>&1
 
       if [ $? -eq 0 ]; then
-        printf "${GREEN}✓ %4d raw → %3d hourly (${CHUNKS_PROCESSED} chunks)${NC}\n" "$MARKET_RAW_RECORDS" "$HOURLY_COUNT"
+        printf "${GREEN}✓ %4d raw → %3d hourly (${CHUNKS_PROCESSED} samples)${NC}\n" "$MARKET_RAW_RECORDS" "$HOURLY_COUNT"
         ((SUCCESS++))
         TOTAL_RAW_RECORDS=$((TOTAL_RAW_RECORDS + MARKET_RAW_RECORDS))
         TOTAL_HOURLY_RECORDS=$((TOTAL_HOURLY_RECORDS + HOURLY_COUNT))
