@@ -40,10 +40,12 @@ echo -e "${GREEN}✓ Found $TOTAL_COUNT perpetual markets${NC}"
 echo ""
 
 # Teile Markets auf Worker auf
-TEMP_DIR=$(mktemp -d)
+TEMP_DIR="./logs/paradex-recent-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$TEMP_DIR"
 MARKETS_PER_WORKER=$(( (TOTAL_COUNT + NUM_WORKERS - 1) / NUM_WORKERS ))
 
 echo -e "${YELLOW}Splitting markets across $NUM_WORKERS workers...${NC}"
+echo -e "${YELLOW}Logs: $TEMP_DIR${NC}"
 echo "$MARKETS" | split -l $MARKETS_PER_WORKER - "$TEMP_DIR/markets_"
 
 WORKER_FILES=()
@@ -111,7 +113,5 @@ done
 echo ""
 echo -e "${GREEN}✓ Last 30 days collected!${NC}"
 echo -e "${YELLOW}Next step: Run ./collect-paradex-backfill.sh to collect older data${NC}"
+echo -e "${YELLOW}Logs preserved in: $TEMP_DIR${NC}"
 echo ""
-
-# Cleanup
-rm -rf "$TEMP_DIR"
