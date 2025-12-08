@@ -24,8 +24,8 @@ echo -e "${BLUE}Paradex Recent Data Collection${NC}"
 echo -e "${BLUE}Last 30 Days - Priority Collection${NC}"
 echo -e "${BLUE}=========================================${NC}"
 echo "Workers: $NUM_WORKERS"
-START_DATE=$(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((START_TIME / 1000)) '+%Y-%m-%d')
-END_DATE=$(date '+%Y-%m-%d')
+START_DATE=$(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((START_TIME / 1000)) '+%Y-%m-%d' 2>/dev/null || echo "Unknown")
+END_DATE=$(date '+%Y-%m-%d' 2>/dev/null || echo "Unknown")
 echo "Period: $START_DATE to $END_DATE (30 days)"
 echo "Rate: 25 req/s total (1500 req/min - at API limit)"
 echo ""

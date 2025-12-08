@@ -40,8 +40,8 @@ if [ -z "$OLDEST_TIMESTAMP" ] || [ "$OLDEST_TIMESTAMP" = "null" ]; then
   exit 1
 fi
 
-OLDEST_DATE=$(date -d "@$((OLDEST_TIMESTAMP / 1000))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r $((OLDEST_TIMESTAMP / 1000)) '+%Y-%m-%d %H:%M:%S')
-TARGET_DATE=$(date -d "@$((TARGET_START / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((TARGET_START / 1000)) '+%Y-%m-%d')
+OLDEST_DATE=$(date -d "@$((OLDEST_TIMESTAMP / 1000))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r $((OLDEST_TIMESTAMP / 1000)) '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "Unknown")
+TARGET_DATE=$(date -d "@$((TARGET_START / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((TARGET_START / 1000)) '+%Y-%m-%d' 2>/dev/null || echo "Unknown")
 
 echo -e "${GREEN}✓ Oldest data: $OLDEST_DATE${NC}"
 echo -e "  Target: $TARGET_DATE"
@@ -64,8 +64,8 @@ if [ "$START_TIME" -lt "$TARGET_START" ]; then
   echo -e "${YELLOW}⚠ Adjusted start time to target date${NC}"
 fi
 
-START_DATE=$(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((START_TIME / 1000)) '+%Y-%m-%d')
-END_DATE=$(date -d "@$((END_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((END_TIME / 1000)) '+%Y-%m-%d')
+START_DATE=$(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((START_TIME / 1000)) '+%Y-%m-%d' 2>/dev/null || echo "Unknown")
+END_DATE=$(date -d "@$((END_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((END_TIME / 1000)) '+%Y-%m-%d' 2>/dev/null || echo "Unknown")
 
 DAYS=$(( (END_TIME - START_TIME) / 86400000 ))
 
@@ -169,12 +169,12 @@ if [ "$NEW_OLDEST" -le "$TARGET_START" ]; then
   echo -e "${GREEN}=========================================${NC}"
   echo -e "${GREEN}✓ COMPLETE! Reached target date!${NC}"
   echo -e "${GREEN}=========================================${NC}"
-  NEW_OLDEST_DATE=$(date -d "@$((NEW_OLDEST / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((NEW_OLDEST / 1000)) '+%Y-%m-%d')
+  NEW_OLDEST_DATE=$(date -d "@$((NEW_OLDEST / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((NEW_OLDEST / 1000)) '+%Y-%m-%d' 2>/dev/null || echo "Unknown")
   echo "Oldest data now: $NEW_OLDEST_DATE"
   echo ""
   echo -e "${GREEN}All historical data collected!${NC}"
 else
-  NEW_OLDEST_DATE=$(date -d "@$((NEW_OLDEST / 1000))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r $((NEW_OLDEST / 1000)) '+%Y-%m-%d %H:%M:%S')
+  NEW_OLDEST_DATE=$(date -d "@$((NEW_OLDEST / 1000))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r $((NEW_OLDEST / 1000)) '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "Unknown")
   DAYS_REMAINING=$(( (NEW_OLDEST - TARGET_START) / 86400000 ))
   ITERATIONS_REMAINING=$(( (DAYS_REMAINING + 29) / 30 ))
 

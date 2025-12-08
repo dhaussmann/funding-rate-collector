@@ -37,7 +37,11 @@ TOTAL_HOURLY_RECORDS=0
 
 echo -e "${BLUE}[Worker $WORKER_ID] Started${NC}"
 echo "Markets file: $MARKETS_FILE"
-echo "Period: $(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((START_TIME / 1000)) '+%Y-%m-%d') to $(date -d "@$((END_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((END_TIME / 1000)) '+%Y-%m-%d')"
+
+START_DATE=$(date -d "@$((START_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((START_TIME / 1000)) '+%Y-%m-%d' 2>/dev/null)
+END_DATE=$(date -d "@$((END_TIME / 1000))" '+%Y-%m-%d' 2>/dev/null || date -r $((END_TIME / 1000)) '+%Y-%m-%d' 2>/dev/null)
+
+echo "Period: $START_DATE to $END_DATE"
 echo ""
 
 TOTAL_MARKETS=$(wc -l < "$MARKETS_FILE")
@@ -96,8 +100,9 @@ while IFS= read -r MARKET; do
         }
       }
     ' | while IFS=: read -r HOUR AVG_RATE SAMPLE_COUNT; do
-      FUNDING_RATE_PERCENT=$(echo "$AVG_RATE * 100" | bc -l)
-      ANNUALIZED_RATE=$(echo "$AVG_RATE * 100 * 3 * 365" | bc -l)
+      # Verwende awk statt bc für bessere Handhabung von wissenschaftlicher Notation
+      FUNDING_RATE_PERCENT=$(awk "BEGIN {printf \"%.18f\", $AVG_RATE * 100}")
+      ANNUALIZED_RATE=$(awk "BEGIN {printf \"%.18f\", $AVG_RATE * 100 * 3 * 365}")
 
       echo "INSERT OR IGNORE INTO unified_funding_rates (exchange, symbol, trading_pair, funding_rate, funding_rate_percent, annualized_rate, collected_at) VALUES ('paradex', '$BASE_ASSET', '$MARKET', $AVG_RATE, $FUNDING_RATE_PERCENT, $ANNUALIZED_RATE, $HOUR);" >> "$HOURLY_TEMP"
       echo "INSERT OR IGNORE INTO paradex_hourly_averages (symbol, base_asset, hour_timestamp, avg_funding_rate, avg_funding_premium, avg_mark_price, avg_underlying_price, funding_index_start, funding_index_end, funding_index_delta, sample_count) VALUES ('$MARKET', '$BASE_ASSET', $HOUR, $AVG_RATE, 0, 0, NULL, 0, 0, 0, $SAMPLE_COUNT);" >> "$HOURLY_TEMP"
