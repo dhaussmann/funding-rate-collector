@@ -26,17 +26,17 @@ echo "=== Schritt 1: Prüfe betroffene Einträge ==="
 echo ""
 
 echo "Checking unified_funding_rates..."
-npx wrangler d1 execute funding-rate-collector --remote --command \
+npx wrangler d1 execute funding-rates-db --remote --command \
   "SELECT COUNT(*) as count FROM unified_funding_rates WHERE exchange = 'paradex' AND collected_at >= $START_OF_DAY AND collected_at <= $END_OF_DAY"
 
 echo ""
 echo "Checking paradex_minute_data..."
-npx wrangler d1 execute funding-rate-collector --remote --command \
+npx wrangler d1 execute funding-rates-db --remote --command \
   "SELECT COUNT(*) as count FROM paradex_minute_data WHERE collected_at >= $START_OF_DAY AND collected_at <= $END_OF_DAY"
 
 echo ""
 echo "Checking paradex_hourly_averages..."
-npx wrangler d1 execute funding-rate-collector --remote --command \
+npx wrangler d1 execute funding-rates-db --remote --command \
   "SELECT COUNT(*) as count FROM paradex_hourly_averages WHERE hour_timestamp >= $START_OF_DAY AND hour_timestamp <= $END_OF_DAY"
 
 echo ""
@@ -54,15 +54,15 @@ echo "=== Schritt 3: Lösche Daten ==="
 echo ""
 
 echo "Deleting from unified_funding_rates..."
-npx wrangler d1 execute funding-rate-collector --remote --command \
+npx wrangler d1 execute funding-rates-db --remote --command \
   "DELETE FROM unified_funding_rates WHERE exchange = 'paradex' AND collected_at >= $START_OF_DAY AND collected_at <= $END_OF_DAY"
 
 echo "Deleting from paradex_minute_data..."
-npx wrangler d1 execute funding-rate-collector --remote --command \
+npx wrangler d1 execute funding-rates-db --remote --command \
   "DELETE FROM paradex_minute_data WHERE collected_at >= $START_OF_DAY AND collected_at <= $END_OF_DAY"
 
 echo "Deleting from paradex_hourly_averages..."
-npx wrangler d1 execute funding-rate-collector --remote --command \
+npx wrangler d1 execute funding-rates-db --remote --command \
   "DELETE FROM paradex_hourly_averages WHERE hour_timestamp >= $START_OF_DAY AND hour_timestamp <= $END_OF_DAY"
 
 echo ""
