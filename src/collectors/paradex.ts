@@ -85,9 +85,10 @@ export async function collectParadexMinute(env: Env): Promise<ParadexMinuteData[
         const markPrice = parseFloat(market.mark_price || '0');
         const underlyingPrice = market.underlying_price ? parseFloat(market.underlying_price) : null;
 
-        // Berechne funding_premium: funding_rate ist 8h rate, premium ist der USDC Betrag
-        // Premium = funding_rate * mark_price (näherungsweise)
-        const fundingPremium = fundingRate * markPrice;
+        // FIX: funding_rate ist bereits eine prozentuale Rate (z.B. 0.00005 = 0.005%)
+        // Wir speichern diese direkt als Rate, NICHT als absoluten USDC-Betrag
+        // funding_premium = funding_rate (keine Multiplikation mit markPrice)
+        const fundingPremium = fundingRate;
 
         // Berechne funding_index durch Integration
         let fundingIndex = 0;
