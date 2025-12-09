@@ -80,15 +80,48 @@ process_markets() {
 
     printf "[W%02d][%3d%%] (%2d/%2d) %-20s " "$WORKER_ID" "$PERCENT" "$CURRENT_LOCAL" "$TOTAL_LOCAL" "$MARKET" >> "$TEMP_DIR/worker_${WORKER_ID}.log"
 
-    # Sammle Daten für den ganzen Tag
-    RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${START_TIME}&end_at=${END_TIME}")
-    RECORDS_COUNT=$(echo "$RESPONSE" | jq '.results | length' 2>/dev/null)
+    # Sammle ALLE Daten für den ganzen Tag (mit Pagination)
+    ALL_DATA_TEMP=$(mktemp)
+    CURSOR=""
+    PAGE=0
+    TOTAL_FETCHED=0
 
-    if [ "$RECORDS_COUNT" -gt 0 ] 2>/dev/null; then
+    while true; do
+      ((PAGE++))
+
+      if [ -z "$CURSOR" ]; then
+        # Erste Seite
+        RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${START_TIME}&end_at=${END_TIME}")
+      else
+        # Folgeseiten mit Cursor
+        RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${START_TIME}&end_at=${END_TIME}&cursor=${CURSOR}")
+      fi
+
+      RECORDS_COUNT=$(echo "$RESPONSE" | jq '.results | length' 2>/dev/null)
+
+      if [ "$RECORDS_COUNT" -gt 0 ] 2>/dev/null; then
+        echo "$RESPONSE" | jq -c '.results[]' >> "$ALL_DATA_TEMP"
+        TOTAL_FETCHED=$((TOTAL_FETCHED + RECORDS_COUNT))
+
+        # Prüfe ob es eine nächste Seite gibt
+        NEXT_CURSOR=$(echo "$RESPONSE" | jq -r '.next // empty' 2>/dev/null)
+
+        if [ -z "$NEXT_CURSOR" ] || [ "$NEXT_CURSOR" = "null" ]; then
+          break
+        fi
+
+        CURSOR="$NEXT_CURSOR"
+        sleep 0.01  # Kurze Pause zwischen Seiten
+      else
+        break
+      fi
+    done
+
+    if [ $TOTAL_FETCHED -gt 0 ]; then
       # Aggregiere nach Stunden
       HOURLY_TEMP=$(mktemp)
 
-      echo "$RESPONSE" | jq -r '.results[] |
+      cat "$ALL_DATA_TEMP" | jq -r '
         (.created_at / 3600000 | floor * 3600000) as $hour |
         (.funding_rate | tonumber) as $rate |
         "\($hour):\($rate)"
@@ -120,7 +153,7 @@ process_markets() {
         npx wrangler d1 execute "$DB_NAME" --remote --file="$HOURLY_TEMP" > /dev/null 2>&1
 
         if [ $? -eq 0 ]; then
-          printf "${GREEN}✓ %d hours${NC}\n" "$HOURLY_COUNT" >> "$TEMP_DIR/worker_${WORKER_ID}.log"
+          printf "${GREEN}✓ %d hours (%d records)${NC}\n" "$HOURLY_COUNT" "$TOTAL_FETCHED" >> "$TEMP_DIR/worker_${WORKER_ID}.log"
           ((SUCCESS_LOCAL++))
           TOTAL_HOURLY_LOCAL=$((TOTAL_HOURLY_LOCAL + HOURLY_COUNT))
         else
@@ -133,9 +166,11 @@ process_markets() {
       fi
 
       rm -f "$HOURLY_TEMP"
+      rm -f "$ALL_DATA_TEMP"
     else
       printf "${YELLOW}⚠ No data${NC}\n" >> "$TEMP_DIR/worker_${WORKER_ID}.log"
       ((FAILED_LOCAL++))
+      rm -f "$ALL_DATA_TEMP"
     fi
 
     # Rate limiting: ~60 req/s pro Worker
