@@ -7,18 +7,28 @@ echo ""
 echo "Dieses Skript hilft beim Löschen der fehlerhaften Paradex-Daten von heute."
 echo ""
 
-# Aktuelles Datum ermitteln
-TODAY=$(date -u +%Y-%m-%d)
+# Aktuelles Datum ermitteln (kompatibel mit BSD und GNU date)
+if date -v 1d > /dev/null 2>&1; then
+  # BSD date (macOS)
+  TODAY=$(date -u +%Y-%m-%d)
+  START_OF_DAY=$(date -u -j -f "%Y-%m-%d %H:%M:%S" "$TODAY 00:00:00" +%s)000
+  END_OF_DAY=$(date -u -j -f "%Y-%m-%d %H:%M:%S" "$TODAY 23:59:59" +%s)999
+  START_FORMATTED=$(date -u -j -f %s $((START_OF_DAY/1000)) '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$TODAY 00:00:00")
+  END_FORMATTED=$(date -u -j -f %s $((END_OF_DAY/1000)) '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$TODAY 23:59:59")
+else
+  # GNU date (Linux)
+  TODAY=$(date -u +%Y-%m-%d)
+  START_OF_DAY=$(date -u -d "$TODAY 00:00:00" +%s)000
+  END_OF_DAY=$(date -u -d "$TODAY 23:59:59" +%s)999
+  START_FORMATTED=$(date -u -d @$((START_OF_DAY/1000)) '+%Y-%m-%d %H:%M:%S')
+  END_FORMATTED=$(date -u -d @$((END_OF_DAY/1000)) '+%Y-%m-%d %H:%M:%S')
+fi
+
 echo "Heutiges Datum (UTC): $TODAY"
 echo ""
-
-# Zeitstempel berechnen (Anfang und Ende des Tages)
-START_OF_DAY=$(date -u -d "$TODAY 00:00:00" +%s)000
-END_OF_DAY=$(date -u -d "$TODAY 23:59:59" +%s)999
-
 echo "Zeitbereich:"
-echo "  Start: $START_OF_DAY ($(date -u -d @$((START_OF_DAY/1000)) '+%Y-%m-%d %H:%M:%S'))"
-echo "  Ende:  $END_OF_DAY ($(date -u -d @$((END_OF_DAY/1000)) '+%Y-%m-%d %H:%M:%S'))"
+echo "  Start: $START_OF_DAY ($START_FORMATTED)"
+echo "  Ende:  $END_OF_DAY ($END_FORMATTED)"
 echo ""
 
 # Schritt 1: Prüfe, wie viele Einträge betroffen sind
