@@ -80,41 +80,28 @@ process_markets() {
 
     printf "[W%02d][%3d%%] (%2d/%2d) %-20s " "$WORKER_ID" "$PERCENT" "$CURRENT_LOCAL" "$TOTAL_LOCAL" "$MARKET" >> "$TEMP_DIR/worker_${WORKER_ID}.log"
 
-    # Sammle ALLE Daten für den ganzen Tag (mit Pagination)
+    # Sammle ALLE Daten für den ganzen Tag (mit Chunking wie im Original-Script)
     ALL_DATA_TEMP=$(mktemp)
-    CURSOR=""
-    PAGE=0
+    CHUNK_SIZE=3600000        # 1 Stunde chunks
+    SAMPLE_TIME=$START_TIME
     TOTAL_FETCHED=0
 
-    while true; do
-      ((PAGE++))
-
-      if [ -z "$CURSOR" ]; then
-        # Erste Seite
-        RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${START_TIME}&end_at=${END_TIME}")
-      else
-        # Folgeseiten mit Cursor
-        RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${START_TIME}&end_at=${END_TIME}&cursor=${CURSOR}")
+    while [ $SAMPLE_TIME -lt $END_TIME ]; do
+      CHUNK_END=$((SAMPLE_TIME + CHUNK_SIZE))
+      if [ $CHUNK_END -gt $END_TIME ]; then
+        CHUNK_END=$END_TIME
       fi
 
+      RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${SAMPLE_TIME}&end_at=${CHUNK_END}")
       RECORDS_COUNT=$(echo "$RESPONSE" | jq '.results | length' 2>/dev/null)
 
       if [ "$RECORDS_COUNT" -gt 0 ] 2>/dev/null; then
         echo "$RESPONSE" | jq -c '.results[]' >> "$ALL_DATA_TEMP"
         TOTAL_FETCHED=$((TOTAL_FETCHED + RECORDS_COUNT))
-
-        # Prüfe ob es eine nächste Seite gibt
-        NEXT_CURSOR=$(echo "$RESPONSE" | jq -r '.next // empty' 2>/dev/null)
-
-        if [ -z "$NEXT_CURSOR" ] || [ "$NEXT_CURSOR" = "null" ]; then
-          break
-        fi
-
-        CURSOR="$NEXT_CURSOR"
-        sleep 0.01  # Kurze Pause zwischen Seiten
-      else
-        break
       fi
+
+      SAMPLE_TIME=$((SAMPLE_TIME + CHUNK_SIZE))
+      sleep 0.01  # Kurze Pause zwischen Chunks
     done
 
     if [ $TOTAL_FETCHED -gt 0 ]; then
