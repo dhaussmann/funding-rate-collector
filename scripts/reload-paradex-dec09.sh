@@ -80,15 +80,35 @@ process_markets() {
 
     printf "[W%02d][%3d%%] (%2d/%2d) %-20s " "$WORKER_ID" "$PERCENT" "$CURRENT_LOCAL" "$TOTAL_LOCAL" "$MARKET" >> "$TEMP_DIR/worker_${WORKER_ID}.log"
 
-    # Sammle Daten für den ganzen Tag
-    RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${START_TIME}&end_at=${END_TIME}")
-    RECORDS_COUNT=$(echo "$RESPONSE" | jq '.results | length' 2>/dev/null)
+    # Sammle ALLE Daten für den ganzen Tag (mit Chunking wie im Original-Script)
+    ALL_DATA_TEMP=$(mktemp)
+    CHUNK_SIZE=3600000        # 1 Stunde chunks
+    SAMPLE_TIME=$START_TIME
+    TOTAL_FETCHED=0
 
-    if [ "$RECORDS_COUNT" -gt 0 ] 2>/dev/null; then
+    while [ $SAMPLE_TIME -lt $END_TIME ]; do
+      CHUNK_END=$((SAMPLE_TIME + CHUNK_SIZE))
+      if [ $CHUNK_END -gt $END_TIME ]; then
+        CHUNK_END=$END_TIME
+      fi
+
+      RESPONSE=$(curl -s "https://api.prod.paradex.trade/v1/funding/data?market=${MARKET}&start_at=${SAMPLE_TIME}&end_at=${CHUNK_END}")
+      RECORDS_COUNT=$(echo "$RESPONSE" | jq '.results | length' 2>/dev/null)
+
+      if [ "$RECORDS_COUNT" -gt 0 ] 2>/dev/null; then
+        echo "$RESPONSE" | jq -c '.results[]' >> "$ALL_DATA_TEMP"
+        TOTAL_FETCHED=$((TOTAL_FETCHED + RECORDS_COUNT))
+      fi
+
+      SAMPLE_TIME=$((SAMPLE_TIME + CHUNK_SIZE))
+      sleep 0.01  # Kurze Pause zwischen Chunks
+    done
+
+    if [ $TOTAL_FETCHED -gt 0 ]; then
       # Aggregiere nach Stunden
       HOURLY_TEMP=$(mktemp)
 
-      echo "$RESPONSE" | jq -r '.results[] |
+      cat "$ALL_DATA_TEMP" | jq -r '
         (.created_at / 3600000 | floor * 3600000) as $hour |
         (.funding_rate | tonumber) as $rate |
         "\($hour):\($rate)"
@@ -120,7 +140,7 @@ process_markets() {
         npx wrangler d1 execute "$DB_NAME" --remote --file="$HOURLY_TEMP" > /dev/null 2>&1
 
         if [ $? -eq 0 ]; then
-          printf "${GREEN}✓ %d hours${NC}\n" "$HOURLY_COUNT" >> "$TEMP_DIR/worker_${WORKER_ID}.log"
+          printf "${GREEN}✓ %d hours (%d records)${NC}\n" "$HOURLY_COUNT" "$TOTAL_FETCHED" >> "$TEMP_DIR/worker_${WORKER_ID}.log"
           ((SUCCESS_LOCAL++))
           TOTAL_HOURLY_LOCAL=$((TOTAL_HOURLY_LOCAL + HOURLY_COUNT))
         else
@@ -133,9 +153,11 @@ process_markets() {
       fi
 
       rm -f "$HOURLY_TEMP"
+      rm -f "$ALL_DATA_TEMP"
     else
       printf "${YELLOW}⚠ No data${NC}\n" >> "$TEMP_DIR/worker_${WORKER_ID}.log"
       ((FAILED_LOCAL++))
+      rm -f "$ALL_DATA_TEMP"
     fi
 
     # Rate limiting: ~60 req/s pro Worker
