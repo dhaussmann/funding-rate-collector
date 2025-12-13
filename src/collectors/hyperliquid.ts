@@ -142,25 +142,63 @@ export async function collectSpotMarketsHyperliquid(env: Env): Promise<{
   const original: any[] = [];
 
   try {
-    // Hole Spot-Metadaten
-    const response = await fetch('https://api.hyperliquid.xyz/info', {
+    // 1. Hole zuerst alle Perpetual-Token-Namen
+    const perpResponse = await fetch('https://api.hyperliquid.xyz/info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'metaAndAssetCtxs' }),
+    });
+
+    if (!perpResponse.ok) {
+      throw new Error(`Hyperliquid Perp API error: ${perpResponse.status}`);
+    }
+
+    const perpData = await perpResponse.json();
+    const perpMeta: HyperliquidMeta = perpData[0];
+
+    // Erstelle Set mit allen Perp-Token-Namen (ohne delisted)
+    const perpTokenNames = new Set<string>(
+      perpMeta.universe
+        .filter(t => !t.isDelisted)
+        .map(t => t.name)
+    );
+
+    console.log(`[Hyperliquid Spot] Found ${perpTokenNames.size} perpetual tokens`);
+
+    // 2. Hole Spot-Metadaten
+    const spotResponse = await fetch('https://api.hyperliquid.xyz/info', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'spotMeta' }),
     });
 
-    if (!response.ok) {
-      throw new Error(`Hyperliquid Spot API error: ${response.status}`);
+    if (!spotResponse.ok) {
+      throw new Error(`Hyperliquid Spot API error: ${spotResponse.status}`);
     }
 
-    const data: HyperliquidSpotMeta = await response.json();
+    const data: HyperliquidSpotMeta = await spotResponse.json();
     const collectedAt = Date.now();
 
-    // Verarbeite alle Spot-Tokens
+    // 3. Verarbeite alle Spot-Tokens mit intelligenter Namensbereinigung
     for (const token of data.tokens) {
+      let symbolName = token.name;
+
+      // Wenn Token mit "U" beginnt, prüfe ob es eine Perp-Version ohne "U" gibt
+      if (token.name.startsWith('U') && token.name.length > 1) {
+        const nameWithoutU = token.name.substring(1); // Entferne "U" am Anfang
+
+        // Wenn es einen Perp mit diesem Namen gibt, verwende den Namen ohne "U"
+        if (perpTokenNames.has(nameWithoutU)) {
+          symbolName = nameWithoutU;
+          console.log(`[Hyperliquid Spot] Mapping ${token.name} → ${symbolName} (Perp exists)`);
+        }
+        // Sonst behalte den Namen mit "U" (z.B. UNIT, USDC bleiben so)
+      }
+
       // Original Daten speichern (für hyperliquid_spot_markets Tabelle)
+      // Hier speichern wir den ORIGINALEN Namen aus der API
       original.push({
-        token_name: token.name,
+        token_name: token.name,  // Original-Name aus API (z.B. UBTC)
         token_id: token.tokenId,
         sz_decimals: token.szDecimals,
         wei_decimals: token.weiDecimals,
@@ -168,11 +206,11 @@ export async function collectSpotMarketsHyperliquid(env: Env): Promise<{
         collected_at: collectedAt,
       });
 
-      // Unified Format
+      // Unified Format - hier verwenden wir den bereinigten Namen
       unified.push({
         exchange: 'hyperliquid',
-        symbol: token.name,
-        baseAsset: token.name,
+        symbol: symbolName,  // Bereinigter Name (z.B. BTC statt UBTC)
+        baseAsset: symbolName,
         quoteAsset: 'USDC',  // Hyperliquid Spot ist USDC-basiert
         status: 'active',
         collectedAt,
