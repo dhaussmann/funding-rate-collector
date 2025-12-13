@@ -175,6 +175,9 @@ export async function collectSpotMarketsHyperliquid(env: Env): Promise<{
     const collectedAt = Date.now();
 
     // 3. Verarbeite alle Spot-Tokens mit intelligenter Namensbereinigung
+    // Verwende Set um Duplikate zu vermeiden
+    const seenSymbols = new Set<string>();
+
     for (const token of data.tokens) {
       let symbolName = token.name;
 
@@ -190,6 +193,14 @@ export async function collectSpotMarketsHyperliquid(env: Env): Promise<{
         // Sonst behalte den Namen mit "U" (z.B. UNIT, USDC bleiben so)
       }
 
+      // Prüfe auf Duplikate - nimm nur das erste Vorkommen
+      if (seenSymbols.has(symbolName)) {
+        console.log(`[Hyperliquid Spot] Skipping duplicate symbol: ${symbolName} (from ${token.name})`);
+        continue;
+      }
+
+      seenSymbols.add(symbolName);
+
       // Nur exchange + symbol speichern
       markets.push({
         exchange: 'hyperliquid',
@@ -198,7 +209,7 @@ export async function collectSpotMarketsHyperliquid(env: Env): Promise<{
       });
     }
 
-    console.log(`[Hyperliquid Spot] Collected ${markets.length} spot markets`);
+    console.log(`[Hyperliquid Spot] Collected ${markets.length} unique spot markets (from ${data.tokens.length} total tokens)`);
   } catch (error) {
     console.error('[Hyperliquid Spot] Error collecting markets:', error);
     throw error;
