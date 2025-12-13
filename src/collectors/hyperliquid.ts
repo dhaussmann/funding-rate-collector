@@ -39,9 +39,6 @@ interface HyperliquidSpotMeta {
 export interface SpotMarket {
   exchange: string;
   symbol: string;
-  baseAsset?: string;
-  quoteAsset?: string;
-  status: string;
   collectedAt: number;
 }
 
@@ -135,11 +132,9 @@ export async function collectHistoricalHyperliquid(
 
 // SPOT MARKETS Collection
 export async function collectSpotMarketsHyperliquid(env: Env): Promise<{
-  unified: SpotMarket[];
-  original: any[];
+  markets: SpotMarket[];
 }> {
-  const unified: SpotMarket[] = [];
-  const original: any[] = [];
+  const markets: SpotMarket[] = [];
 
   try {
     // 1. Hole zuerst alle Perpetual-Token-Namen
@@ -195,33 +190,19 @@ export async function collectSpotMarketsHyperliquid(env: Env): Promise<{
         // Sonst behalte den Namen mit "U" (z.B. UNIT, USDC bleiben so)
       }
 
-      // Original Daten speichern (für hyperliquid_spot_markets Tabelle)
-      // Hier speichern wir den ORIGINALEN Namen aus der API
-      original.push({
-        token_name: token.name,  // Original-Name aus API (z.B. UBTC)
-        token_id: token.tokenId,
-        sz_decimals: token.szDecimals,
-        wei_decimals: token.weiDecimals,
-        is_canonical: token.isCanonical ? 1 : 0,
-        collected_at: collectedAt,
-      });
-
-      // Unified Format - hier verwenden wir den bereinigten Namen
-      unified.push({
+      // Nur exchange + symbol speichern
+      markets.push({
         exchange: 'hyperliquid',
         symbol: symbolName,  // Bereinigter Name (z.B. BTC statt UBTC)
-        baseAsset: symbolName,
-        quoteAsset: 'USDC',  // Hyperliquid Spot ist USDC-basiert
-        status: 'active',
         collectedAt,
       });
     }
 
-    console.log(`[Hyperliquid Spot] Collected ${unified.length} spot markets`);
+    console.log(`[Hyperliquid Spot] Collected ${markets.length} spot markets`);
   } catch (error) {
     console.error('[Hyperliquid Spot] Error collecting markets:', error);
     throw error;
   }
 
-  return { unified, original };
+  return { markets };
 }

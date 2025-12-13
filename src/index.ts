@@ -141,9 +141,9 @@ export default {
           const exchangeName = ['hyperliquid', 'lighter'][i];
 
           if (result.status === 'fulfilled') {
-            const { unified, original } = result.value;
-            spotStats[`${exchangeName}_spot` as keyof typeof spotStats] = unified.length;
-            await saveSpotMarkets(env, exchangeName, unified, original);
+            const { markets } = result.value;
+            spotStats[`${exchangeName}_spot` as keyof typeof spotStats] = markets.length;
+            await saveSpotMarkets(env, exchangeName, markets);
           } else {
             const error = `${exchangeName}_spot: ${result.reason}`;
             spotStats.errors.push(error);
@@ -683,9 +683,6 @@ export default {
           SELECT
             exchange,
             symbol,
-            base_asset,
-            quote_asset,
-            status,
             collected_at,
             datetime(collected_at/1000, 'unixepoch') as collected_time
           FROM unified_spot_markets
@@ -747,9 +744,9 @@ export default {
           const exchangeName = exchanges[i];
 
           if (result.status === 'fulfilled') {
-            const { unified, original } = result.value;
-            stats[exchangeName as keyof typeof stats] = unified.length;
-            await saveSpotMarkets(env, exchangeName, unified, original);
+            const { markets } = result.value;
+            stats[exchangeName as keyof typeof stats] = markets.length;
+            await saveSpotMarkets(env, exchangeName, markets);
           } else {
             const error = `${exchangeName}: ${result.reason}`;
             stats.errors.push(error);

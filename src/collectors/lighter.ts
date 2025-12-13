@@ -19,9 +19,6 @@ interface LighterFunding {
 export interface SpotMarket {
   exchange: string;
   symbol: string;
-  baseAsset?: string;
-  quoteAsset?: string;
-  status: string;
   collectedAt: number;
 }
 
@@ -181,11 +178,9 @@ export async function collectHistoricalLighter(
 
 // SPOT MARKETS Collection
 export async function collectSpotMarketsLighter(env: Env): Promise<{
-  unified: SpotMarket[];
-  original: any[];
+  markets: SpotMarket[];
 }> {
-  const unified: SpotMarket[] = [];
-  const original: any[] = [];
+  const markets: SpotMarket[] = [];
 
   try {
     // Hole alle Markets (sowohl Spot als auch Perpetuals)
@@ -204,40 +199,22 @@ export async function collectSpotMarketsLighter(env: Env): Promise<{
     );
 
     for (const market of spotMarkets) {
-      // Extrahiere Base und Quote Assets aus dem Symbol
-      // Spot-Format: "ETH/USDC" (mit Slash)
-      // Perp-Format: "ETH-USDC" oder "ETH" (mit Bindestrich oder ohne)
-      const parts = market.symbol.split(/[\/\-]/);  // Split bei / oder -
-      const baseAsset = parts[0] || market.symbol;
-      const quoteAsset = parts[1] || 'USDC';
+      // Extrahiere Base Asset aus dem Symbol (z.B. "ETH/USDC" → "ETH")
+      const baseAsset = market.symbol.split(/[\/\-]/)[0] || market.symbol;
 
-      // Original Daten speichern (für lighter_spot_markets Tabelle)
-      original.push({
-        market_id: market.market_id,
-        symbol: market.symbol,
-        base_asset: baseAsset,
-        quote_asset: quoteAsset,
-        status: market.status,
-        market_type: market.market_type || 'spot',
-        collected_at: collectedAt,
-      });
-
-      // Unified Format
-      unified.push({
+      // Nur exchange + symbol speichern
+      markets.push({
         exchange: 'lighter',
-        symbol: market.symbol,
-        baseAsset: baseAsset,
-        quoteAsset: quoteAsset,
-        status: market.status || 'active',
+        symbol: baseAsset,  // Nur Base Asset (ETH statt ETH/USDC)
         collectedAt,
       });
     }
 
-    console.log(`[Lighter Spot] Collected ${unified.length} spot markets (filtered from ${marketsData.order_books.length} total markets)`);
+    console.log(`[Lighter Spot] Collected ${markets.length} spot markets (filtered from ${marketsData.order_books.length} total markets)`);
   } catch (error) {
     console.error('[Lighter Spot] Error collecting markets:', error);
     throw error;
   }
 
-  return { unified, original };
+  return { markets };
 }
