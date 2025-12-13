@@ -231,6 +231,7 @@ export async function saveParadexHourlyAverages(env: Env, data: ParadexHourlyAve
 
 /**
  * Speichert Spot-Market-Daten für alle Börsen
+ * Löscht zuerst alle alten Daten der Börse, dann fügt die aktuellen ein
  */
 export async function saveSpotMarkets(
   env: Env,
@@ -241,13 +242,44 @@ export async function saveSpotMarkets(
   if (unified.length === 0) return;
 
   try {
+    // 1. Lösche alle alten Daten für diese Börse
+    await deleteOldSpotData(env, exchange);
+
+    // 2. Füge neue Daten ein
     await saveOriginalSpotData(env, exchange, original);
     await saveUnifiedSpotData(env, unified);
-    console.log(`[DB] Saved ${unified.length} spot market records for ${exchange}`);
+
+    console.log(`[DB] Replaced spot market data for ${exchange}: ${unified.length} markets`);
   } catch (error) {
     console.error(`[DB] Failed to save spot market data for ${exchange}:`, error);
     throw error;
   }
+}
+
+/**
+ * Löscht alle alten Spot-Market-Daten für eine Börse
+ */
+async function deleteOldSpotData(env: Env, exchange: string): Promise<void> {
+  const statements = [];
+
+  switch (exchange) {
+    case 'hyperliquid':
+      statements.push(env.DB.prepare('DELETE FROM hyperliquid_spot_markets'));
+      break;
+    case 'lighter':
+      statements.push(env.DB.prepare('DELETE FROM lighter_spot_markets'));
+      break;
+    default:
+      throw new Error(`Unknown exchange for spot markets: ${exchange}`);
+  }
+
+  // Lösche auch aus der unified Tabelle für diese Börse
+  statements.push(
+    env.DB.prepare('DELETE FROM unified_spot_markets WHERE exchange = ?').bind(exchange)
+  );
+
+  await env.DB.batch(statements);
+  console.log(`[DB] Deleted old spot market data for ${exchange}`);
 }
 
 async function saveOriginalSpotData(env: Env, exchange: string, original: any[]): Promise<void> {
