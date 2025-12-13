@@ -278,27 +278,63 @@ export async function areSpotMarketsUpToDate(
     const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
     const oldestAcceptableTime = Date.now() - maxAgeMs;
 
-    let query = 'SELECT MAX(collected_at) as latest_collection FROM unified_spot_markets';
-    const params: any[] = [];
-
     if (exchange) {
-      query += ' WHERE exchange = ?';
-      params.push(exchange);
+      // Prüfe nur eine spezifische Börse
+      const result = await env.DB.prepare(
+        'SELECT MAX(collected_at) as latest_collection FROM unified_spot_markets WHERE exchange = ?'
+      ).bind(exchange).first();
+
+      if (!result || !result.latest_collection) {
+        console.log(`[DB] No spot market data found for ${exchange}`);
+        return false;
+      }
+
+      const isUpToDate = result.latest_collection >= oldestAcceptableTime;
+      const ageHours = Math.round((Date.now() - Number(result.latest_collection)) / (60 * 60 * 1000));
+
+      console.log(`[DB] ${exchange} spot market data age: ${ageHours}h (max: ${maxAgeHours}h), up-to-date: ${isUpToDate}`);
+      return isUpToDate;
+    } else {
+      // Prüfe ALLE erwarteten Börsen (hyperliquid + lighter)
+      const result = await env.DB.prepare(
+        'SELECT exchange, MAX(collected_at) as latest_collection FROM unified_spot_markets GROUP BY exchange'
+      ).all();
+
+      const exchanges = new Map<string, number>();
+      if (result.results) {
+        for (const row of result.results) {
+          exchanges.set(row.exchange as string, Number(row.latest_collection));
+        }
+      }
+
+      const expectedExchanges = ['hyperliquid', 'lighter'];
+      const missingExchanges: string[] = [];
+      const outdatedExchanges: string[] = [];
+
+      for (const ex of expectedExchanges) {
+        const lastCollection = exchanges.get(ex);
+
+        if (!lastCollection) {
+          missingExchanges.push(ex);
+        } else if (lastCollection < oldestAcceptableTime) {
+          const ageHours = Math.round((Date.now() - lastCollection) / (60 * 60 * 1000));
+          outdatedExchanges.push(`${ex} (${ageHours}h old)`);
+        }
+      }
+
+      if (missingExchanges.length > 0) {
+        console.log(`[DB] Missing spot market data for: ${missingExchanges.join(', ')}`);
+        return false;
+      }
+
+      if (outdatedExchanges.length > 0) {
+        console.log(`[DB] Outdated spot market data for: ${outdatedExchanges.join(', ')}`);
+        return false;
+      }
+
+      console.log(`[DB] All spot market data up-to-date (max age: ${maxAgeHours}h)`);
+      return true;
     }
-
-    const result = await env.DB.prepare(query).bind(...params).first();
-
-    if (!result || !result.latest_collection) {
-      console.log('[DB] No spot market data found');
-      return false;
-    }
-
-    const isUpToDate = result.latest_collection >= oldestAcceptableTime;
-    const ageHours = Math.round((Date.now() - Number(result.latest_collection)) / (60 * 60 * 1000));
-
-    console.log(`[DB] Spot market data age: ${ageHours}h (max: ${maxAgeHours}h), up-to-date: ${isUpToDate}`);
-
-    return isUpToDate;
   } catch (error) {
     console.error('[DB] Error checking spot market freshness:', error);
     return false;
