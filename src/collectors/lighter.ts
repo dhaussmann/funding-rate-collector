@@ -198,20 +198,16 @@ export async function collectSpotMarketsLighter(env: Env): Promise<{
     const marketsData = await marketsResponse.json();
     const collectedAt = Date.now();
 
-    // Filtere nach Spot-Märkten (keine Perpetuals)
-    // Perpetuals haben oft "PERP" im Namen oder spezielle market_type
+    // Filtere nach Spot-Märkten (market_type === 'spot')
     const spotMarkets: LighterMarket[] = marketsData.order_books.filter(
-      (m: LighterMarket) => {
-        // Filter logic: Spot markets typically don't have PERP, PERPS, or -PERP in their symbol
-        const isPerpetual = /PERP|perpetual/i.test(m.symbol);
-        return !isPerpetual;
-      }
+      (m: LighterMarket) => m.market_type === 'spot'
     );
 
     for (const market of spotMarkets) {
       // Extrahiere Base und Quote Assets aus dem Symbol
-      // Beispiele: "BTC-USDC", "ETH-USDT", "SOL-USDC"
-      const parts = market.symbol.split('-');
+      // Spot-Format: "ETH/USDC" (mit Slash)
+      // Perp-Format: "ETH-USDC" oder "ETH" (mit Bindestrich oder ohne)
+      const parts = market.symbol.split(/[\/\-]/);  // Split bei / oder -
       const baseAsset = parts[0] || market.symbol;
       const quoteAsset = parts[1] || 'USDC';
 
