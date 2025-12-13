@@ -230,124 +230,36 @@ export async function saveParadexHourlyAverages(env: Env, data: ParadexHourlyAve
 }
 
 /**
- * Speichert Spot-Market-Daten für alle Börsen
+ * Speichert Spot-Market-Daten (nur exchange + symbol)
  * Löscht zuerst alle alten Daten der Börse, dann fügt die aktuellen ein
  */
 export async function saveSpotMarkets(
   env: Env,
   exchange: string,
-  unified: any[],
-  original: any[]
+  markets: any[]
 ): Promise<void> {
-  if (unified.length === 0) return;
+  if (markets.length === 0) return;
 
   try {
     // 1. Lösche alle alten Daten für diese Börse
-    await deleteOldSpotData(env, exchange);
+    await env.DB.prepare('DELETE FROM unified_spot_markets WHERE exchange = ?')
+      .bind(exchange)
+      .run();
 
     // 2. Füge neue Daten ein
-    await saveOriginalSpotData(env, exchange, original);
-    await saveUnifiedSpotData(env, unified);
+    const stmt = env.DB.prepare(`
+      INSERT INTO unified_spot_markets (exchange, symbol, collected_at)
+      VALUES (?, ?, ?)
+    `);
 
-    console.log(`[DB] Replaced spot market data for ${exchange}: ${unified.length} markets`);
+    const batch = markets.map((market: any) =>
+      stmt.bind(market.exchange, market.symbol, market.collectedAt)
+    );
+
+    await env.DB.batch(batch);
+    console.log(`[DB] Replaced spot market data for ${exchange}: ${markets.length} markets`);
   } catch (error) {
     console.error(`[DB] Failed to save spot market data for ${exchange}:`, error);
     throw error;
   }
-}
-
-/**
- * Löscht alle alten Spot-Market-Daten für eine Börse
- */
-async function deleteOldSpotData(env: Env, exchange: string): Promise<void> {
-  const statements = [];
-
-  switch (exchange) {
-    case 'hyperliquid':
-      statements.push(env.DB.prepare('DELETE FROM hyperliquid_spot_markets'));
-      break;
-    case 'lighter':
-      statements.push(env.DB.prepare('DELETE FROM lighter_spot_markets'));
-      break;
-    default:
-      throw new Error(`Unknown exchange for spot markets: ${exchange}`);
-  }
-
-  // Lösche auch aus der unified Tabelle für diese Börse
-  statements.push(
-    env.DB.prepare('DELETE FROM unified_spot_markets WHERE exchange = ?').bind(exchange)
-  );
-
-  await env.DB.batch(statements);
-  console.log(`[DB] Deleted old spot market data for ${exchange}`);
-}
-
-async function saveOriginalSpotData(env: Env, exchange: string, original: any[]): Promise<void> {
-  if (original.length === 0) return;
-
-  let stmt;
-  let batch;
-
-  switch (exchange) {
-    case 'hyperliquid':
-      stmt = env.DB.prepare(`
-        INSERT INTO hyperliquid_spot_markets (token_name, token_id, sz_decimals, wei_decimals, is_canonical, collected_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      batch = original.map((o: any) =>
-        stmt.bind(
-          o.token_name,
-          o.token_id,
-          o.sz_decimals,
-          o.wei_decimals,
-          o.is_canonical,
-          o.collected_at
-        )
-      );
-      break;
-
-    case 'lighter':
-      stmt = env.DB.prepare(`
-        INSERT INTO lighter_spot_markets (market_id, symbol, base_asset, quote_asset, status, market_type, collected_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      batch = original.map((o: any) =>
-        stmt.bind(
-          o.market_id,
-          o.symbol,
-          o.base_asset,
-          o.quote_asset,
-          o.status,
-          o.market_type,
-          o.collected_at
-        )
-      );
-      break;
-
-    default:
-      throw new Error(`Unknown exchange for spot markets: ${exchange}`);
-  }
-
-  await env.DB.batch(batch);
-}
-
-async function saveUnifiedSpotData(env: Env, unified: any[]): Promise<void> {
-  const stmt = env.DB.prepare(`
-    INSERT INTO unified_spot_markets (
-      exchange, symbol, base_asset, quote_asset, status, collected_at
-    ) VALUES (?, ?, ?, ?, ?, ?)
-  `);
-
-  const batch = unified.map((market: any) =>
-    stmt.bind(
-      market.exchange,
-      market.symbol,
-      market.baseAsset,
-      market.quoteAsset,
-      market.status,
-      market.collectedAt
-    )
-  );
-
-  await env.DB.batch(batch);
 }
