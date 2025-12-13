@@ -12,7 +12,7 @@ import {
 import { collectParadexMinute, aggregateParadexHourly } from './collectors/paradex';
 import { collectSpotMarketsHyperliquid } from './collectors/hyperliquid';
 import { collectSpotMarketsLighter } from './collectors/lighter';
-import { saveToDBCurrent, saveParadexMinuteData, saveParadexHourlyAverages, saveSpotMarkets } from './database/operations';
+import { saveToDBCurrent, saveParadexMinuteData, saveParadexHourlyAverages, saveSpotMarkets, areSpotMarketsUpToDate } from './database/operations';
 
 export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -672,13 +672,49 @@ export default {
       }
 
       // ============================================
-      // NEU: /spot-markets - Spot-Märkte abrufen
+      // NEU: /spot-markets - Spot-Märkte abrufen (mit Auto-Refresh)
       // ============================================
       if (path === '/spot-markets') {
         const exchange = url.searchParams.get('exchange');
         const symbol = url.searchParams.get('symbol');
         const limit = parseInt(url.searchParams.get('limit') || '1000');
+        const maxAgeHours = parseInt(url.searchParams.get('maxAge') || '24');
 
+        // Prüfe ob Daten vorhanden und aktuell sind
+        const isUpToDate = await areSpotMarketsUpToDate(env, exchange || undefined, maxAgeHours);
+
+        // Wenn keine Daten oder zu alt -> sammle neu
+        if (!isUpToDate) {
+          console.log('[API] Spot market data missing or outdated, collecting now...');
+
+          const exchangesToCollect = exchange ? [exchange] : ['hyperliquid', 'lighter'];
+          const collectionPromises = [];
+
+          if (exchangesToCollect.includes('hyperliquid')) {
+            collectionPromises.push(
+              collectSpotMarketsHyperliquid(env).then(({ markets }) =>
+                saveSpotMarkets(env, 'hyperliquid', markets)
+              )
+            );
+          }
+
+          if (exchangesToCollect.includes('lighter')) {
+            collectionPromises.push(
+              collectSpotMarketsLighter(env).then(({ markets }) =>
+                saveSpotMarkets(env, 'lighter', markets)
+              )
+            );
+          }
+
+          try {
+            await Promise.allSettled(collectionPromises);
+            console.log('[API] Spot market data refreshed successfully');
+          } catch (error) {
+            console.error('[API] Error refreshing spot market data:', error);
+          }
+        }
+
+        // Jetzt die aktuellen Daten abrufen
         let query = `
           SELECT
             exchange,
@@ -713,6 +749,7 @@ export default {
             count: results.length,
             results,
             timestamp: Date.now(),
+            auto_refreshed: !isUpToDate,
           }),
           {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },

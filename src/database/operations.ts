@@ -263,3 +263,44 @@ export async function saveSpotMarkets(
     throw error;
   }
 }
+
+/**
+ * Prüft ob Spot-Market-Daten vorhanden und aktuell sind
+ * @param maxAgeHours Maximales Alter der Daten in Stunden (Standard: 24)
+ * @returns true wenn Daten aktuell sind, false wenn leer oder zu alt
+ */
+export async function areSpotMarketsUpToDate(
+  env: Env,
+  exchange?: string,
+  maxAgeHours: number = 24
+): Promise<boolean> {
+  try {
+    const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
+    const oldestAcceptableTime = Date.now() - maxAgeMs;
+
+    let query = 'SELECT MAX(collected_at) as latest_collection FROM unified_spot_markets';
+    const params: any[] = [];
+
+    if (exchange) {
+      query += ' WHERE exchange = ?';
+      params.push(exchange);
+    }
+
+    const result = await env.DB.prepare(query).bind(...params).first();
+
+    if (!result || !result.latest_collection) {
+      console.log('[DB] No spot market data found');
+      return false;
+    }
+
+    const isUpToDate = result.latest_collection >= oldestAcceptableTime;
+    const ageHours = Math.round((Date.now() - Number(result.latest_collection)) / (60 * 60 * 1000));
+
+    console.log(`[DB] Spot market data age: ${ageHours}h (max: ${maxAgeHours}h), up-to-date: ${isUpToDate}`);
+
+    return isUpToDate;
+  } catch (error) {
+    console.error('[DB] Error checking spot market freshness:', error);
+    return false;
+  }
+}
