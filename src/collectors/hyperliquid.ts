@@ -16,6 +16,35 @@ interface HyperliquidAssetContext {
   oraclePx?: string;
 }
 
+// Spot Market Interfaces
+interface HyperliquidSpotToken {
+  name: string;
+  szDecimals: number;
+  weiDecimals: number;
+  index: number;
+  tokenId: string;
+  isCanonical: boolean;
+}
+
+interface HyperliquidSpotMeta {
+  tokens: HyperliquidSpotToken[];
+  universe: Array<{
+    tokens: number[];  // indices in tokens array
+    name: string;
+    index: number;
+    isCanonical: boolean;
+  }>;
+}
+
+export interface SpotMarket {
+  exchange: string;
+  symbol: string;
+  baseAsset?: string;
+  quoteAsset?: string;
+  status: string;
+  collectedAt: number;
+}
+
 // CURRENT Collection
 export async function collectCurrentHyperliquid(env: Env): Promise<{
   unified: UnifiedFundingRate[];
@@ -102,4 +131,59 @@ export async function collectHistoricalHyperliquid(
   // Wir können nur aktuelle Daten sammeln
   console.warn('[Hyperliquid] Historical data collection not supported, returning current data');
   return collectCurrentHyperliquid(env);
+}
+
+// SPOT MARKETS Collection
+export async function collectSpotMarketsHyperliquid(env: Env): Promise<{
+  unified: SpotMarket[];
+  original: any[];
+}> {
+  const unified: SpotMarket[] = [];
+  const original: any[] = [];
+
+  try {
+    // Hole Spot-Metadaten
+    const response = await fetch('https://api.hyperliquid.xyz/info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'spotMeta' }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Hyperliquid Spot API error: ${response.status}`);
+    }
+
+    const data: HyperliquidSpotMeta = await response.json();
+    const collectedAt = Date.now();
+
+    // Verarbeite alle Spot-Tokens
+    for (const token of data.tokens) {
+      // Original Daten speichern (für hyperliquid_spot_markets Tabelle)
+      original.push({
+        token_name: token.name,
+        token_id: token.tokenId,
+        sz_decimals: token.szDecimals,
+        wei_decimals: token.weiDecimals,
+        is_canonical: token.isCanonical ? 1 : 0,
+        collected_at: collectedAt,
+      });
+
+      // Unified Format
+      unified.push({
+        exchange: 'hyperliquid',
+        symbol: token.name,
+        baseAsset: token.name,
+        quoteAsset: 'USDC',  // Hyperliquid Spot ist USDC-basiert
+        status: 'active',
+        collectedAt,
+      });
+    }
+
+    console.log(`[Hyperliquid Spot] Collected ${unified.length} spot markets`);
+  } catch (error) {
+    console.error('[Hyperliquid Spot] Error collecting markets:', error);
+    throw error;
+  }
+
+  return { unified, original };
 }

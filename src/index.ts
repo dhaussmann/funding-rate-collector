@@ -10,7 +10,9 @@ import {
   collectHistoricalParadex,
 } from './collectors';
 import { collectParadexMinute, aggregateParadexHourly } from './collectors/paradex';
-import { saveToDBCurrent, saveParadexMinuteData, saveParadexHourlyAverages } from './database/operations';
+import { collectSpotMarketsHyperliquid } from './collectors/hyperliquid';
+import { collectSpotMarketsLighter } from './collectors/lighter';
+import { saveToDBCurrent, saveParadexMinuteData, saveParadexHourlyAverages, saveSpotMarkets } from './database/operations';
 
 export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -118,6 +120,41 @@ export default {
         console.log('[CRON] Hourly tasks completed:', { ...stats, duration: `${duration}ms` });
       }
 
+      // ===== TÄGLICH (Stunde 0, Minute 0): Spot Markets sammeln =====
+      const currentHour = now.getUTCHours();
+      if (currentHour === 0 && currentMinute === 0) {
+        console.log('[CRON] Starting daily spot markets collection...');
+
+        const spotResults = await Promise.allSettled([
+          collectSpotMarketsHyperliquid(env),
+          collectSpotMarketsLighter(env),
+        ]);
+
+        const spotStats = {
+          hyperliquid_spot: 0,
+          lighter_spot: 0,
+          errors: [] as string[],
+        };
+
+        for (let i = 0; i < spotResults.length; i++) {
+          const result = spotResults[i];
+          const exchangeName = ['hyperliquid', 'lighter'][i];
+
+          if (result.status === 'fulfilled') {
+            const { unified, original } = result.value;
+            spotStats[`${exchangeName}_spot` as keyof typeof spotStats] = unified.length;
+            await saveSpotMarkets(env, exchangeName, unified, original);
+          } else {
+            const error = `${exchangeName}_spot: ${result.reason}`;
+            spotStats.errors.push(error);
+            console.error(`[CRON] ${error}`);
+          }
+        }
+
+        const spotDuration = Date.now() - startTime;
+        console.log('[CRON] Daily spot markets collection completed:', { ...spotStats, duration: `${spotDuration}ms` });
+      }
+
       const totalDuration = Date.now() - startTime;
       console.log(`[CRON] All tasks completed in ${totalDuration}ms`);
     } catch (error) {
@@ -154,7 +191,10 @@ export default {
           '- /stats\n' +
           '\nParadex Specific Endpoints:\n' +
           '- /paradex/hourly?symbol=BTC&hours=24\n' +
-          '- /paradex/minute?symbol=BTC&minutes=60',
+          '- /paradex/minute?symbol=BTC&minutes=60\n' +
+          '\nSpot Markets Endpoints:\n' +
+          '- /spot-markets?exchange=hyperliquid\n' +
+          '- /spot-markets/collect',
           {
             headers: { ...corsHeaders, 'Content-Type': 'text/plain' },
           }
@@ -629,6 +669,97 @@ export default {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           }
         );
+      }
+
+      // ============================================
+      // NEU: /spot-markets - Spot-Märkte abrufen
+      // ============================================
+      if (path === '/spot-markets') {
+        const exchange = url.searchParams.get('exchange');
+        const symbol = url.searchParams.get('symbol');
+        const limit = parseInt(url.searchParams.get('limit') || '1000');
+
+        let query = `
+          SELECT
+            exchange,
+            symbol,
+            base_asset,
+            quote_asset,
+            status,
+            collected_at,
+            datetime(collected_at/1000, 'unixepoch') as collected_time
+          FROM unified_spot_markets
+          WHERE 1=1
+        `;
+
+        const params: any[] = [];
+
+        if (exchange) {
+          query += ' AND exchange = ?';
+          params.push(exchange);
+        }
+
+        if (symbol) {
+          query += ' AND symbol = ?';
+          params.push(symbol);
+        }
+
+        query += ' ORDER BY collected_at DESC LIMIT ?';
+        params.push(limit);
+
+        const { results } = await env.DB.prepare(query).bind(...params).all();
+
+        return new Response(
+          JSON.stringify({
+            exchange: exchange || 'all',
+            symbol: symbol || 'all',
+            count: results.length,
+            results,
+            timestamp: Date.now(),
+          }),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      // ============================================
+      // NEU: /spot-markets/collect - Manuelles Sammeln von Spot-Märkten
+      // ============================================
+      if (path === '/spot-markets/collect') {
+        console.log('[API] Manual spot markets collection triggered');
+
+        const spotResults = await Promise.allSettled([
+          collectSpotMarketsHyperliquid(env),
+          collectSpotMarketsLighter(env),
+        ]);
+
+        const stats = {
+          hyperliquid: 0,
+          lighter: 0,
+          errors: [] as string[],
+        };
+
+        const exchanges = ['hyperliquid', 'lighter'];
+
+        for (let i = 0; i < spotResults.length; i++) {
+          const result = spotResults[i];
+          const exchangeName = exchanges[i];
+
+          if (result.status === 'fulfilled') {
+            const { unified, original } = result.value;
+            stats[exchangeName as keyof typeof stats] = unified.length;
+            await saveSpotMarkets(env, exchangeName, unified, original);
+          } else {
+            const error = `${exchangeName}: ${result.reason}`;
+            stats.errors.push(error);
+            console.error(`[API] ${error}`);
+          }
+        }
+
+        return new Response(JSON.stringify({ success: true, stats }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
 
       return new Response(JSON.stringify({ error: 'Not found' }), {

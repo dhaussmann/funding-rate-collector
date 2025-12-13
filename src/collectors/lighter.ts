@@ -5,12 +5,24 @@ interface LighterMarket {
   market_id: number;
   symbol: string;
   status: string;
+  market_type?: string;
+  base_asset?: string;
+  quote_asset?: string;
 }
 
 interface LighterFunding {
   rate: number;      // WICHTIG: Bereits in PROZENT! (z.B. 0.0012 = 0.0012%)
   direction: 'long' | 'short';
   timestamp: number; // in SECONDS!
+}
+
+export interface SpotMarket {
+  exchange: string;
+  symbol: string;
+  baseAsset?: string;
+  quoteAsset?: string;
+  status: string;
+  collectedAt: number;
 }
 
 // CURRENT Collection
@@ -161,6 +173,73 @@ export async function collectHistoricalLighter(
     console.log(`[Lighter] Collected ${unified.length} historical funding rates for ${symbol}`);
   } catch (error) {
     console.error('[Lighter] Error collecting historical rates:', error);
+    throw error;
+  }
+
+  return { unified, original };
+}
+
+// SPOT MARKETS Collection
+export async function collectSpotMarketsLighter(env: Env): Promise<{
+  unified: SpotMarket[];
+  original: any[];
+}> {
+  const unified: SpotMarket[] = [];
+  const original: any[] = [];
+
+  try {
+    // Hole alle Markets (sowohl Spot als auch Perpetuals)
+    const marketsResponse = await fetch('https://mainnet.zklighter.elliot.ai/api/v1/orderBooks');
+
+    if (!marketsResponse.ok) {
+      throw new Error(`Lighter markets API error: ${marketsResponse.status}`);
+    }
+
+    const marketsData = await marketsResponse.json();
+    const collectedAt = Date.now();
+
+    // Filtere nach Spot-Märkten (keine Perpetuals)
+    // Perpetuals haben oft "PERP" im Namen oder spezielle market_type
+    const spotMarkets: LighterMarket[] = marketsData.order_books.filter(
+      (m: LighterMarket) => {
+        // Filter logic: Spot markets typically don't have PERP, PERPS, or -PERP in their symbol
+        const isPerpetual = /PERP|perpetual/i.test(m.symbol);
+        return !isPerpetual;
+      }
+    );
+
+    for (const market of spotMarkets) {
+      // Extrahiere Base und Quote Assets aus dem Symbol
+      // Beispiele: "BTC-USDC", "ETH-USDT", "SOL-USDC"
+      const parts = market.symbol.split('-');
+      const baseAsset = parts[0] || market.symbol;
+      const quoteAsset = parts[1] || 'USDC';
+
+      // Original Daten speichern (für lighter_spot_markets Tabelle)
+      original.push({
+        market_id: market.market_id,
+        symbol: market.symbol,
+        base_asset: baseAsset,
+        quote_asset: quoteAsset,
+        status: market.status,
+        market_type: market.market_type || 'spot',
+        collected_at: collectedAt,
+      });
+
+      // Unified Format
+      unified.push({
+        exchange: 'lighter',
+        symbol: market.symbol,
+        baseAsset: baseAsset,
+        quoteAsset: quoteAsset,
+        status: market.status || 'active',
+        collectedAt,
+      });
+    }
+
+    console.log(`[Lighter Spot] Collected ${unified.length} spot markets (filtered from ${marketsData.order_books.length} total markets)`);
+  } catch (error) {
+    console.error('[Lighter Spot] Error collecting markets:', error);
     throw error;
   }
 
