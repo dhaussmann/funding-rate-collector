@@ -4,10 +4,9 @@ compatibility_date = "2024-11-30"
 
 compatibility_flags = ["nodejs_compat"]
 
-# Custom Domain Konfiguration
-routes = [
-  { pattern = "api.fundingrate.de/*", custom_domain = true }
-]
+[[routes]]
+pattern = "api.fundingrate.de"
+custom_domain = true
 
 [triggers]
 crons = ["* * * * *"]  # Jede Minute für Paradex, stündlich für andere Exchanges
