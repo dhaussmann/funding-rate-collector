@@ -67,6 +67,33 @@ wrangler d1 execute funding-rates-db --file=./schema.sql
 wrangler deploy
 ```
 
+### 4. Custom Domain Setup (Optional)
+
+Die API ist über die Custom Domain `api.fundingrate.de` erreichbar. Um die Domain einzurichten:
+
+#### Schritt 1: Domain zu Cloudflare hinzufügen
+1. Melde dich im [Cloudflare Dashboard](https://dash.cloudflare.com) an
+2. Füge die Domain `fundingrate.de` zu deinem Cloudflare Account hinzu
+3. Aktualisiere die Nameserver bei deinem Domain-Registrar auf die von Cloudflare bereitgestellten Nameserver
+
+#### Schritt 2: Custom Domain im Worker konfigurieren
+1. Gehe zu **Workers & Pages** im Cloudflare Dashboard
+2. Wähle deinen Worker `funding-rate-collector` aus
+3. Navigiere zu **Settings** → **Domains & Routes**
+4. Klicke auf **Add Custom Domain**
+5. Gib `api.fundingrate.de` ein und bestätige
+
+#### Schritt 3: SSL/TLS aktivieren
+Cloudflare aktiviert automatisch ein SSL-Zertifikat für deine Custom Domain. Die API ist dann über HTTPS erreichbar:
+
+```bash
+# Testen der Custom Domain
+curl https://api.fundingrate.de/health
+curl https://api.fundingrate.de/compare?symbol=BTC
+```
+
+**Hinweis:** Die DNS-Propagation kann bis zu 24 Stunden dauern, in der Regel ist die Domain aber innerhalb weniger Minuten erreichbar.
+
 ## Project Structure
 
 ```
